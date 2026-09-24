@@ -80,14 +80,23 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			if body.Foil {
 				price = p.PriceFoil
 			}
-			if !exists {
-				if err := s.AddCopy(p.SetCode, p.Number, body.Foil, body.Qty); err != nil {
+			pending, err := s.TakePending(p.Name)
+			if err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+			add := body.Qty
+			if !exists && pending > add {
+				add = pending
+			}
+			if exists && existing.FrontImage == "" {
+				add = 0
+			}
+			if add > 0 {
+				if err := s.AddCopy(p.SetCode, p.Number, body.Foil, add); err != nil {
 					fail(w, http.StatusInternalServerError, err)
 					return
 				}
-			} else if err := s.AddCopy(body.Set, body.Number, body.Foil, body.Qty); err != nil {
-				fail(w, http.StatusInternalServerError, err)
-				return
 			}
 			if err := s.SetMeta(store.Copy{
 				SetCode: p.SetCode, Number: p.Number, Foil: body.Foil,

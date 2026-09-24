@@ -41,16 +41,17 @@ function sectionOf(typeLine) {
   return "Spells";
 }
 
-function cellHTML(c, i) {
+function cellHTML(c, i, mode) {
   const locked = c.in_other_built > 0 && (c.owned - c.in_other_built) <= 0;
   const label = locked ? `In deck: ${c.other_decks}` : "";
   const src = imgURL(face[key(c)] || c.front_image);
   const art = src
     ? `<img alt="" src="${src}">`
     : `<div class="plate">${escapeHTML(c.name || "Unlinked printing")}</div>`;
+  const count = mode === "deck" ? c.in_this : c.owned;
   return `<button class="cell${locked ? " locked" : ""}" type="button" data-i="${i}">
     <div class="art">${art}
-      ${c.in_this ? `<span class="badge">×${c.in_this}</span>` : (c.owned && !c.in_this ? `<span class="badge">×${c.owned}</span>` : "")}
+      ${count ? `<span class="badge">×${count}</span>` : ""}
       ${label ? `<span class="veil">${escapeHTML(label)}</span>` : ""}
     </div>
     <figcaption>
@@ -139,7 +140,7 @@ async function refreshDeck() {
 
 function renderPool(pool) {
   const shown = pool.filter(matchesColor);
-  document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i)).join("");
+  document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i, "deck")).join("");
   document.getElementById("pool").querySelectorAll(".cell").forEach(el => {
     const c = shown[+el.dataset.i];
     el.addEventListener("click", () => addCopy(c));

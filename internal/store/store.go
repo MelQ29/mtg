@@ -142,6 +142,20 @@ func (s *Store) Get(set, number string, foil bool) (Copy, bool, error) {
 	return list[0], true, nil
 }
 
+// TakePending removes an unresolved import row with this name and returns its quantity.
+func (s *Store) TakePending(name string) (int, error) {
+	var qty int
+	err := s.db.QueryRow(`SELECT qty FROM copies WHERE set_code='pending' AND collector_number=? AND foil=0`, name).Scan(&qty)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.db.Exec(`DELETE FROM copies WHERE set_code='pending' AND collector_number=? AND foil=0`, name)
+	return qty, err
+}
+
 // Has reports whether the printing row exists.
 func (s *Store) Has(set, number string, foil bool) (bool, error) {
 	var n int
