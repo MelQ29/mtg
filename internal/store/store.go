@@ -5,7 +5,9 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"sync"
 
+	"github.com/MelQ29/mtg/internal/alloc"
 	_ "modernc.org/sqlite"
 )
 
@@ -58,6 +60,7 @@ type Entry struct {
 // Store is the SQLite collection.
 type Store struct {
 	db *sql.DB
+	mu sync.Mutex
 }
 
 // Open creates the file and schema.
@@ -263,6 +266,41 @@ func (s *Store) Entries(deckID int) ([]Entry, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// ApplyEntryDelta adds delta under a lock so two clicks cannot lose a count.
+func (s *Store) ApplyEntryDelta(deckID int, set, number string, foil bool, delta int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status, err := s.DeckStatus(deckID)
+	if err != nil {
+		return 0, err
+	}
+	owned, err := s.Qty(set, number, foil)
+	if err != nil {
+		return 0, err
+	}
+	inThis, err := s.EntryQty(deckID, set, number, foil)
+	if err != nil {
+		return 0, err
+	}
+	other, _, err := s.OtherBuilt(set, number, foil, deckID)
+	if err != nil {
+		return 0, err
+	}
+	line := alloc.Line{Owned: owned, InThis: inThis, InOtherBuilt: other}
+	if status == "built" {
+		if !alloc.CanPlace(line, delta) {
+			return 0, fmt.Errorf("not enough free copies")
+		}
+	} else if inThis+delta < 0 || (delta > 0 && inThis+delta > owned) {
+		return 0, fmt.Errorf("not enough owned copies")
+	}
+	next := inThis + delta
+	if err := s.SetEntry(deckID, set, number, foil, next); err != nil {
+		return 0, err
+	}
+	return next, nil
 }
 
 // SetEntry sets the absolute quantity of a printing in a deck. Zero deletes the row.

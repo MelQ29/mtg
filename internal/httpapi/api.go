@@ -230,41 +230,20 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 		if body.Qty == 0 {
 			body.Qty = 1
 		}
-		status, err := s.DeckStatus(id)
+		next, err := s.ApplyEntryDelta(id, body.Set, body.Number, body.Foil, body.Qty)
 		if err != nil {
-			fail(w, http.StatusNotFound, err)
-			return
-		}
-		owned, err := s.Qty(body.Set, body.Number, body.Foil)
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		inThis, err := s.EntryQty(id, body.Set, body.Number, body.Foil)
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		other, _, err := s.OtherBuilt(body.Set, body.Number, body.Foil, id)
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		line := alloc.Line{Owned: owned, InThis: inThis, InOtherBuilt: other}
-		if status == "built" {
-			if !alloc.CanPlace(line, body.Qty) {
-				fail(w, http.StatusConflict, errors.New("not enough free copies"))
+			if err.Error() == "not enough free copies" || err.Error() == "not enough owned copies" {
+				fail(w, http.StatusConflict, err)
 				return
 			}
-		} else if inThis+body.Qty < 0 || (body.Qty > 0 && inThis+body.Qty > owned) {
-			fail(w, http.StatusConflict, errors.New("not enough owned copies"))
+			if strings.Contains(err.Error(), "no rows") {
+				fail(w, http.StatusNotFound, err)
+				return
+			}
+			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := s.SetEntry(id, body.Set, body.Number, body.Foil, inThis+body.Qty); err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "qty": inThis + body.Qty})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "qty": next})
 	})
 	mux.HandleFunc("GET /api/pool", func(w http.ResponseWriter, r *http.Request) {
 		deckID, _ := strconv.Atoi(r.URL.Query().Get("deck_id"))
@@ -346,7 +325,7 @@ func isNumber(s string) bool {
 		switch {
 		case r >= '0' && r <= '9':
 			digits = true
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '★':
 		default:
 			return false
 		}

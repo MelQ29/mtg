@@ -91,7 +91,9 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 	if !found {
 		return os.ErrNotExist
 	}
+	imageDir = filepath.Clean(imageDir)
 	staging := imageDir + ".importing"
+	prev := imageDir + ".prev"
 	if err := os.RemoveAll(staging); err != nil {
 		return err
 	}
@@ -127,8 +129,16 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 		os.RemoveAll(staging)
 		return err
 	}
-	if err := os.RemoveAll(imageDir); err != nil {
+	os.RemoveAll(prev)
+	if _, err := os.Stat(imageDir); err == nil {
+		if err := os.Rename(imageDir, prev); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(staging, imageDir); err != nil {
+		os.Rename(prev, imageDir)
 		return err
 	}
-	return os.Rename(staging, imageDir)
+	os.RemoveAll(prev)
+	return nil
 }

@@ -243,8 +243,14 @@ document.body.addEventListener("mouseover", (e) => {
   const c = host[+cell.dataset.i];
   if (!c || !c.front_image) { preview.style.display = "none"; return; }
   const r = cell.getBoundingClientRect();
-  let left = r.right + 12;
-  if (left + 280 > window.innerWidth) left = Math.max(8, r.left - 272);
+  let left = r.right;
+  preview.style.paddingLeft = "16px";
+  preview.style.paddingRight = "0";
+  if (left + 280 > window.innerWidth) {
+    left = Math.max(8, r.left - 276);
+    preview.style.paddingLeft = "0";
+    preview.style.paddingRight = "16px";
+  }
   preview.style.left = left + "px";
   preview.style.top = Math.max(64, r.top) + "px";
   previewCard(c);
@@ -270,6 +276,7 @@ document.getElementById("back").addEventListener("click", () => { show("decks");
 document.getElementById("export").addEventListener("click", () => { window.location = "/api/export"; });
 document.getElementById("import").addEventListener("change", async (e) => {
   const file = e.target.files[0];
+  e.target.value = "";
   if (!file) return;
   const body = new FormData();
   body.append("file", file);
@@ -278,6 +285,11 @@ document.getElementById("import").addEventListener("change", async (e) => {
   if (!res.ok) { say("Import failed"); return; }
   say("Collection replaced from the archive.");
   await loadCards();
+  if (document.getElementById("editor").classList.contains("on")) {
+    try { await refreshDeck(); } catch { show("decks"); await loadDecks(); }
+  } else {
+    await loadDecks();
+  }
 });
 
 async function lookup() {
