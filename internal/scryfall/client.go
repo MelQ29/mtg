@@ -134,6 +134,46 @@ type Client struct {
 	last time.Time
 }
 
+// Named loads the canonical printing for a card name.
+// Exact match is tried first. A fuzzy hit is kept only when the names still agree
+// once case and punctuation are ignored, so a wrong card is not stored.
+func (c *Client) Named(name string) (Printing, error) {
+	body, err := c.get("https://api.scryfall.com/cards/named?exact=" + url.QueryEscape(name))
+	if err != nil {
+		body, err = c.get("https://api.scryfall.com/cards/named?fuzzy=" + url.QueryEscape(name))
+		if err != nil {
+			return Printing{}, err
+		}
+		p, err := ParseCard(body)
+		if err != nil {
+			return Printing{}, err
+		}
+		if FoldName(p.Name) != FoldName(name) {
+			return Printing{}, fmt.Errorf("scryfall fuzzy %q is %q", name, p.Name)
+		}
+		return p, nil
+	}
+	return ParseCard(body)
+}
+
+// FoldName compares card names without case or punctuation.
+func FoldName(s string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			space = false
+			continue
+		}
+		if !space {
+			b.WriteByte(' ')
+			space = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // Fetch loads one printing by set code and collector number.
 func (c *Client) Fetch(set, number string) (Printing, error) {
 	body, err := c.get("https://api.scryfall.com/cards/" + url.PathEscape(set) + "/" + url.PathEscape(number))

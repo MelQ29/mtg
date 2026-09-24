@@ -19,6 +19,22 @@ type Row struct {
 }
 
 var lineRe = regexp.MustCompile(`^- (.+?) ×(\d+)(?: — (.+))?$`)
+var deckLineRe = regexp.MustCompile(`^- (\d+) (.+?)(?: \*\*| —|$)`)
+
+// ParseDeck reads a deck markdown list: "- 2 Card Name **[R]**".
+func ParseDeck(markdown string) []Row {
+	var out []Row
+	sc := bufio.NewScanner(strings.NewReader(markdown))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		m := deckLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		out = append(out, Row{Name: strings.TrimSpace(m[2]), Qty: atoi(m[1])})
+	}
+	return out
+}
 
 // Parse reads the kitchen collection markdown.
 func Parse(markdown string) ([]Row, error) {

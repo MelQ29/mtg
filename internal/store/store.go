@@ -145,6 +145,12 @@ func (s *Store) Get(set, number string, foil bool) (Copy, bool, error) {
 	return list[0], true, nil
 }
 
+// Delete removes one printing row.
+func (s *Store) Delete(set, number string, foil bool) error {
+	_, err := s.db.Exec(`DELETE FROM copies WHERE set_code=? AND collector_number=? AND foil=?`, set, number, boolInt(foil))
+	return err
+}
+
 // TakePending removes an unresolved import row with this name and returns its quantity.
 func (s *Store) TakePending(name string) (int, error) {
 	var qty int
@@ -173,7 +179,7 @@ func (s *Store) List(q string) ([]Copy, error) {
 	rows, err := s.db.Query(`
 		SELECT set_code, collector_number, foil, qty, name, set_name, rarity, mana_cost, type_line, colors, price_usd, price_on, front_image, back_image, oracle_text
 		FROM copies
-		WHERE ? = '' OR name LIKE ? OR set_name LIKE ? OR set_code LIKE ? OR collector_number LIKE ? OR (set_code || ' ' || collector_number) LIKE ?
+		WHERE qty > 0 AND (? = '' OR name LIKE ? OR set_name LIKE ? OR set_code LIKE ? OR collector_number LIKE ? OR (set_code || ' ' || collector_number) LIKE ?)
 		ORDER BY name COLLATE NOCASE, set_code, collector_number`,
 		q, like, like, like, like, like)
 	if err != nil {

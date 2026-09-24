@@ -19,6 +19,9 @@ func main() {
 	dbPath := flag.String("db", "data/kitchen.db", "sqlite file, kept out of git")
 	imageDir := flag.String("images", "data/images", "downloaded card images, kept out of git")
 	importPath := flag.String("import", "", "markdown collection to load once into the local database")
+	resolve := flag.Bool("resolve", false, "download Scryfall art for cards that have none")
+	deckPath := flag.String("deck", "", "markdown deck to add as a built deck")
+	deckName := flag.String("deck-name", "Black-Red", "name for -deck")
 	webDir := flag.String("web", "web", "frontend files")
 	flag.Parse()
 
@@ -38,6 +41,14 @@ func main() {
 			log.Fatal(err)
 		}
 		log.Printf("imported %s", *importPath)
+	}
+	if *resolve {
+		resolveMissing(s, &scryfall.Client{}, *imageDir)
+	}
+	if *deckPath != "" {
+		if err := loadDeck(s, *deckPath, *deckName); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	host, port, err := net.SplitHostPort(*addr)

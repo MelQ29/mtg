@@ -28,6 +28,12 @@ func TestParseHexingSingleFace(t *testing.T) {
 	}
 }
 
+func TestFoldNameDropsNonLatin(t *testing.T) {
+	if got := FoldName("Нексус Ликолесья (Maskwood Nexus)"); got != "maskwood nexus" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestParseAangTwoFaces(t *testing.T) {
 	p, err := ParseCard(mustRead(t, "tla-298.json"))
 	if err != nil {
