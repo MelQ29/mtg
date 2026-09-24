@@ -91,10 +91,11 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 	if !found {
 		return os.ErrNotExist
 	}
-	if err := os.RemoveAll(imageDir); err != nil {
+	staging := imageDir + ".importing"
+	if err := os.RemoveAll(staging); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(imageDir, 0o755); err != nil {
+	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
 	for _, f := range zr.File {
@@ -105,7 +106,7 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 		if rel == "" || strings.Contains(rel, "..") {
 			continue
 		}
-		dest := filepath.Join(imageDir, filepath.FromSlash(rel))
+		dest := filepath.Join(staging, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err
 		}
@@ -122,5 +123,12 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 			return err
 		}
 	}
-	return s.Restore(snap)
+	if err := s.Restore(snap); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+	if err := os.RemoveAll(imageDir); err != nil {
+		return err
+	}
+	return os.Rename(staging, imageDir)
 }
