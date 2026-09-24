@@ -60,12 +60,12 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 		if body.Qty <= 0 {
 			body.Qty = 1
 		}
-		exists, err := s.Has(body.Set, body.Number, body.Foil)
+		existing, exists, err := s.Get(body.Set, body.Number, body.Foil)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
-		if !exists {
+		if !exists || existing.FrontImage == "" {
 			p, err := cards.Fetch(body.Set, body.Number)
 			if err != nil {
 				fail(w, http.StatusBadGateway, err)
@@ -80,7 +80,12 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			if body.Foil {
 				price = p.PriceFoil
 			}
-			if err := s.AddCopy(p.SetCode, p.Number, body.Foil, body.Qty); err != nil {
+			if !exists {
+				if err := s.AddCopy(p.SetCode, p.Number, body.Foil, body.Qty); err != nil {
+					fail(w, http.StatusInternalServerError, err)
+					return
+				}
+			} else if err := s.AddCopy(body.Set, body.Number, body.Foil, body.Qty); err != nil {
 				fail(w, http.StatusInternalServerError, err)
 				return
 			}

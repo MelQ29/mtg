@@ -126,6 +126,22 @@ func (s *Store) SetMeta(c Copy) error {
 	return err
 }
 
+// Get returns one printing. The bool is false when it is absent.
+func (s *Store) Get(set, number string, foil bool) (Copy, bool, error) {
+	rows, err := s.db.Query(`
+		SELECT set_code, collector_number, foil, qty, name, set_name, rarity, mana_cost, type_line, colors, price_usd, price_on, front_image, back_image, oracle_text
+		FROM copies WHERE set_code=? AND collector_number=? AND foil=?`, set, number, boolInt(foil))
+	if err != nil {
+		return Copy{}, false, err
+	}
+	defer rows.Close()
+	list, err := scanCopies(rows)
+	if err != nil || len(list) == 0 {
+		return Copy{}, false, err
+	}
+	return list[0], true, nil
+}
+
 // Has reports whether the printing row exists.
 func (s *Store) Has(set, number string, foil bool) (bool, error) {
 	var n int
