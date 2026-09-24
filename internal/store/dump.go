@@ -9,6 +9,12 @@ type Snapshot struct {
 
 // Dump reads every owned printing, deck, and deck entry.
 func (s *Store) Dump() (Snapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dump()
+}
+
+func (s *Store) dump() (Snapshot, error) {
 	copies, err := s.List("")
 	if err != nil {
 		return Snapshot{}, err
@@ -52,6 +58,12 @@ func (s *Store) rawEntries(deckID int) ([]Entry, error) {
 
 // Restore replaces the local collection with a snapshot.
 func (s *Store) Restore(snap Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.restore(snap)
+}
+
+func (s *Store) restore(snap Snapshot) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
