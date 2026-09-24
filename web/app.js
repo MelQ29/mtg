@@ -272,6 +272,7 @@ document.getElementById("import").addEventListener("change", async (e) => {
   if (!file) return;
   const body = new FormData();
   body.append("file", file);
+  if (!confirm("Replace the collection on this computer with that archive?")) return;
   const res = await fetch("/api/import", { method: "POST", body });
   if (!res.ok) { say("Import failed"); return; }
   say("Collection replaced from the archive.");

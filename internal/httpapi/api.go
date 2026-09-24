@@ -332,12 +332,17 @@ func isNumber(s string) bool {
 	if s == "" {
 		return false
 	}
+	digits := false
 	for _, r := range s {
-		if r < '0' || r > '9' {
+		switch {
+		case r >= '0' && r <= '9':
+			digits = true
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		default:
 			return false
 		}
 	}
-	return true
+	return digits
 }
 
 func assertBuildable(s *store.Store, deckID int) error {
