@@ -1,0 +1,26 @@
+{
+  "name": "Aang, Swift Savior // Aang and La, Ocean's Fury",
+  "set": "tla",
+  "set_name": "Avatar: The Last Airbender",
+  "collector_number": "298",
+  "rarity": "rare",
+  "layout": "transform",
+  "color_identity": ["W", "U"],
+  "card_faces": [
+    {
+      "name": "Aang, Swift Savior",
+      "mana_cost": "{1}{W}{U}",
+      "type_line": "Legendary Creature — Human Avatar Ally",
+      "oracle_text": "Flash",
+      "image_uris": {"normal": "https://cards.scryfall.io/normal/front/aang.jpg"}
+    },
+    {
+      "name": "Aang and La, Ocean's Fury",
+      "mana_cost": "",
+      "type_line": "Legendary Creature — Avatar Ally",
+      "oracle_text": "Waterbend",
+      "image_uris": {"normal": "https://cards.scryfall.io/normal/back/aang.jpg"}
+    }
+  ],
+  "prices": {"usd": "2.53", "usd_foil": null}
+}

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kitchen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,560&family=Manrope:wght@460;600;750&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="word">KITCHEN</div>
+  <nav>
+    <button class="on" type="button" data-view="collection">Collection</button>
+    <button type="button" data-view="decks">Decks</button>
+  </nav>
+  <div class="spacer"></div>
+  <button type="button" id="export">Export</button>
+  <label class="file">Import<input id="import" type="file" accept=".zip"></label>
+</header>
+<p id="status" class="status"></p>
+<section class="view on pad" id="collection">
+  <h1>Collection</h1>
+  <div class="toolbar">
+    <input class="search" id="q" placeholder="Name, set, or ecl 317">
+    <button type="button" id="lookup">Look up</button>
+    <div class="colors" id="colors"></div>
+  </div>
+  <div id="results"></div>
+  <div class="cards" id="owned"></div>
+</section>
+<section class="view pad" id="decks">
+  <h1>Decks</h1>
+  <div class="decks" id="deckgrid"></div>
+</section>
+<section class="view" id="editor">
+  <div class="editor">
+    <div class="picker">
+      <div class="toolbar">
+        <button type="button" id="back">Decks</button>
+        <input class="search" id="dq" placeholder="Search the collection">
+        <div class="colors" id="dcolors"></div>
+      </div>
+      <div class="cards" id="pool"></div>
+    </div>
+    <aside class="list" id="list"></aside>
+  </div>
+</section>
+<div class="preview" id="preview"></div>
+<script src="/app.js"></script>
+</body>
+</html>

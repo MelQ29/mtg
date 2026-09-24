@@ -1,0 +1,13 @@
+{
+  "name": "Hexing Squelcher",
+  "set": "ecl",
+  "set_name": "Lorwyn Eclipsed",
+  "collector_number": "317",
+  "rarity": "rare",
+  "mana_cost": "{1}{R}",
+  "type_line": "Creature — Goblin Sorcerer",
+  "oracle_text": "This spell can't be countered.",
+  "color_identity": ["R"],
+  "image_uris": {"normal": "https://cards.scryfall.io/normal/front/hexing.jpg"},
+  "prices": {"usd": "29.59", "usd_foil": "60.50"}
+}
