@@ -66,7 +66,7 @@ h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 
 .drow:hover { background: rgba(239, 231, 214, 0.06); }
 .drow .nm { overflow: hidden; text-overflow: ellipsis; }
 .drow .n { font-weight: 750; color: var(--brass); }
-.preview { position: fixed; width: 260px; z-index: 4; display: none; }
+.preview { position: fixed; width: 260px; z-index: 4; display: none; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; }
 .preview img { width: 100%; border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
 .preview button { margin-top: 8px; background: var(--ink); color: #121816; border: 0; border-radius: 999px; padding: 4px 10px; font-weight: 750; }
 .modes { display: flex; gap: 8px; margin: 0 12px 8px; }

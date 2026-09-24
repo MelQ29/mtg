@@ -243,17 +243,16 @@ document.body.addEventListener("mouseover", (e) => {
   const c = host[+cell.dataset.i];
   if (!c || !c.front_image) { preview.style.display = "none"; return; }
   const r = cell.getBoundingClientRect();
-  let left = r.right;
-  preview.style.paddingLeft = "16px";
+  preview.style.paddingLeft = "0";
   preview.style.paddingRight = "0";
-  if (left + 280 > window.innerWidth) {
-    left = Math.max(8, r.left - 276);
-    preview.style.paddingLeft = "0";
-    preview.style.paddingRight = "16px";
-  }
+  let left = r.right;
+  if (r.right + 260 > window.innerWidth) left = Math.max(8, r.left - 260);
   preview.style.left = left + "px";
-  preview.style.top = Math.max(64, r.top) + "px";
   previewCard(c);
+  const height = preview.offsetHeight;
+  let top = r.top;
+  if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+  preview.style.top = top + "px";
 });
 
 document.addEventListener("mousemove", (e) => {

@@ -125,18 +125,33 @@ func Import(s *store.Store, imageDir string, zipBytes []byte) error {
 			return err
 		}
 	}
-	if err := s.Restore(snap); err != nil {
+	if err := os.RemoveAll(prev); err != nil {
 		os.RemoveAll(staging)
 		return err
 	}
-	os.RemoveAll(prev)
-	if _, err := os.Stat(imageDir); err == nil {
+	_, err = os.Stat(imageDir)
+	if err != nil && !os.IsNotExist(err) {
+		os.RemoveAll(staging)
+		return err
+	}
+	hadImages := err == nil
+	if hadImages {
 		if err := os.Rename(imageDir, prev); err != nil {
+			os.RemoveAll(staging)
 			return err
 		}
 	}
 	if err := os.Rename(staging, imageDir); err != nil {
-		os.Rename(prev, imageDir)
+		if hadImages {
+			os.Rename(prev, imageDir)
+		}
+		return err
+	}
+	if err := s.Restore(snap); err != nil {
+		os.RemoveAll(imageDir)
+		if hadImages {
+			os.Rename(prev, imageDir)
+		}
 		return err
 	}
 	os.RemoveAll(prev)
