@@ -51,6 +51,55 @@ func postJSON(t *testing.T, h http.Handler, path, body string) *httptest.Respons
 	return rec
 }
 
+func TestCollectionValueIgnoresSearch(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.AddCopy("ecl", "317", false, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "ecl", Number: "317", Name: "Hexing Squelcher", PriceUSD: "10.00"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddCopy("fin", "1", false, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "fin", Number: "1", Name: "Blitzball"}); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(s, fakeCards{}, t.TempDir())
+	req := httptest.NewRequest(http.MethodGet, "/api/cards?q=nomatch", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if rec.Body.String() != "[]\n" {
+		t.Fatalf("search body %s", rec.Body.String())
+	}
+	if rec.Header().Get("X-Collection-USD") != "20.00" {
+		t.Fatalf("value %q", rec.Header().Get("X-Collection-USD"))
+	}
+}
+
+func TestCollectionShowsABuiltDeck(t *testing.T) {
+	h := handlerWithOneHexing(t)
+	if postJSON(t, h, "/api/decks", `{"name":"White-Black","description":"","status":"built"}`).Code != 200 {
+		t.Fatal("create")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"ecl","number":"317","foil":false,"qty":1}`).Code != 200 {
+		t.Fatal("entry")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/cards?q=Hexing", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"in_other_built":1`) || !strings.Contains(rec.Body.String(), `"other_decks":"White-Black"`) {
+		t.Fatalf("cards %s", rec.Body.String())
+	}
+}
+
 func TestBuiltDeckRejectsSecondCopy(t *testing.T) {
 	h := handlerWithOneHexing(t)
 	if postJSON(t, h, "/api/decks", `{"name":"Built","description":"","status":"built"}`).Code != 200 {

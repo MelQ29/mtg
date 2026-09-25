@@ -17,6 +17,10 @@
     <button type="button" data-view="decks">Decks</button>
   </nav>
   <div class="spacer"></div>
+  <div class="worth" id="worth" title="Value of every owned copy">
+    <span>Total</span>
+    <strong id="worth-value">—</strong>
+  </div>
   <button type="button" id="export">Export</button>
   <label class="file">Import<input id="import" type="file" accept=".zip"></label>
 </header>
@@ -27,6 +31,12 @@
     <input class="search" id="q" placeholder="Name, set, or ecl 317">
     <button type="button" id="lookup">Look up</button>
     <div class="colors" id="colors"></div>
+    <div class="rarities" id="rarities"></div>
+    <div class="price-filter" id="price-sort">
+      <span>Price</span>
+      <button type="button" data-sort="desc">High–low</button>
+      <button type="button" data-sort="asc">Low–high</button>
+    </div>
   </div>
   <div id="results"></div>
   <div class="cards" id="owned"></div>

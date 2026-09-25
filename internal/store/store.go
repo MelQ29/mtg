@@ -43,18 +43,21 @@ type Deck struct {
 	Description string `json:"description"`
 	Status      string `json:"status"`
 	Cards       int    `json:"cards"`
+	Cover       string `json:"cover,omitempty"`
 }
 
 // Entry is one printing inside a deck.
 type Entry struct {
-	DeckID   int    `json:"deck_id"`
-	SetCode  string `json:"set"`
-	Number   string `json:"number"`
-	Foil     bool   `json:"foil"`
-	Qty      int    `json:"qty"`
-	Name     string `json:"name"`
-	ManaCost string `json:"mana_cost"`
-	TypeLine string `json:"type_line"`
+	DeckID     int    `json:"deck_id"`
+	SetCode    string `json:"set"`
+	Number     string `json:"number"`
+	Foil       bool   `json:"foil"`
+	Qty        int    `json:"qty"`
+	Name       string `json:"name"`
+	ManaCost   string `json:"mana_cost"`
+	TypeLine   string `json:"type_line"`
+	FrontImage string `json:"front_image"`
+	BackImage  string `json:"back_image"`
 }
 
 // Store is the SQLite collection.
@@ -172,6 +175,19 @@ func (s *Store) Has(set, number string, foil bool) (bool, error) {
 	return n > 0, err
 }
 
+// ValueUSD is the sum of each owned copy times that printing's price.
+func (s *Store) ValueUSD() (float64, error) {
+	var v sql.NullFloat64
+	err := s.db.QueryRow(`
+		SELECT SUM(qty * CAST(price_usd AS REAL))
+		FROM copies
+		WHERE qty > 0 AND price_usd != ''`).Scan(&v)
+	if err != nil || !v.Valid {
+		return 0, err
+	}
+	return v.Float64, nil
+}
+
 // List returns owned printings. q matches name, set name, set code, or collector number.
 func (s *Store) List(q string) ([]Copy, error) {
 	q = strings.TrimSpace(q)
@@ -231,7 +247,19 @@ func (s *Store) GetDeck(id int) (Deck, error) {
 // ListDecks returns every deck with its card count.
 func (s *Store) ListDecks() ([]Deck, error) {
 	rows, err := s.db.Query(`
-		SELECT d.id, d.name, d.description, d.status, COALESCE(SUM(e.qty), 0)
+		SELECT d.id, d.name, d.description, d.status, COALESCE(SUM(e.qty), 0),
+			COALESCE((
+				SELECT c.front_image
+				FROM entries e2
+				JOIN copies c ON c.set_code = e2.set_code AND c.collector_number = e2.collector_number AND c.foil = e2.foil
+				WHERE e2.deck_id = d.id AND c.front_image != ''
+				ORDER BY CASE
+					WHEN c.type_line LIKE '%Creature%' THEN 0
+					WHEN c.type_line LIKE '%Land%' THEN 2
+					ELSE 1
+				END, c.name COLLATE NOCASE
+				LIMIT 1
+			), '')
 		FROM decks d LEFT JOIN entries e ON e.deck_id = d.id
 		GROUP BY d.id ORDER BY d.id`)
 	if err != nil {
@@ -241,7 +269,7 @@ func (s *Store) ListDecks() ([]Deck, error) {
 	var out []Deck
 	for rows.Next() {
 		var d Deck
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Cards); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Cards, &d.Cover); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -252,7 +280,7 @@ func (s *Store) ListDecks() ([]Deck, error) {
 // Entries lists cards in a deck, joined to the collection for name and mana.
 func (s *Store) Entries(deckID int) ([]Entry, error) {
 	rows, err := s.db.Query(`
-		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, '')
+		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, ''), COALESCE(c.front_image, ''), COALESCE(c.back_image, '')
 		FROM entries e
 		LEFT JOIN copies c ON c.set_code=e.set_code AND c.collector_number=e.collector_number AND c.foil=e.foil
 		WHERE e.deck_id=?
@@ -265,7 +293,7 @@ func (s *Store) Entries(deckID int) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var foil int
-		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine); err != nil {
+		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine, &e.FrontImage, &e.BackImage); err != nil {
 			return nil, err
 		}
 		e.Foil = foil == 1

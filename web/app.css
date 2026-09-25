@@ -7,24 +7,30 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: Manrope, sans-serif; font-size: 14px; }
+body { background: var(--bg); color: var(--ink); font-family: Manrope, sans-serif; font-size: 14px; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
-.topbar { height: 56px; display: flex; align-items: center; gap: 22px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.topbar { min-height: 56px; display: flex; align-items: center; gap: 22px; padding: 0 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .word { font-family: Literata, serif; letter-spacing: 0.16em; font-size: 13px; color: var(--brass); }
 .topbar nav { display: flex; gap: 4px; }
 .topbar nav button, .topbar > button, .file { background: none; border: 0; padding: 8px 12px; color: var(--dim); }
 .topbar nav button.on { color: var(--ink); box-shadow: inset 0 -2px 0 var(--brass); }
 .spacer { flex: 1; }
+.worth { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.05; padding: 6px 0; }
+.worth span { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.worth strong { font-family: Literata, serif; font-weight: 560; font-size: 20px; color: var(--brass); }
 .file input { display: none; }
-.status { min-height: 1.2em; margin: 0; padding: 4px 20px; color: var(--brass); }
-.view { display: none; height: calc(100vh - 78px); }
-.view.on { display: block; }
-.pad { padding: 22px 24px 32px; overflow: auto; height: 100%; }
+.status { min-height: 1.2em; margin: 0; padding: 4px 20px; color: var(--brass); flex: none; }
+.view { display: none; flex: 1; min-height: 0; }
+.view.on { display: flex; flex-direction: column; }
+.pad { padding: 22px 24px 32px; overflow: auto; flex: 1; min-height: 0; }
 h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 0 14px; }
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
 .search { flex: 1; max-width: 420px; background: #0d1210; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-.colors { display: flex; gap: 6px; }
+.colors, .rarities, .price-filter { display: flex; gap: 6px; align-items: center; }
+.rarities button, .price-filter button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--dim); }
+.rarities button.on, .price-filter button.on { background: var(--brass); border-color: var(--brass); color: #121816; font-weight: 750; }
+.price-filter { color: var(--dim); }
 .pip { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,.45); display: inline-grid; place-items: center; font-size: 11px; font-weight: 750; color: #111; }
 .pip.on { outline: 2px solid var(--brass); }
 .w { background: #f3efe4; } .u { background: #6ea8d8; color: #fff; }
@@ -54,9 +60,18 @@ h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 
 .box strong { display: block; font-size: 18px; }
 .box span { color: var(--dim); font-size: 13px; }
 .addbox { background: transparent; border: 1px dashed rgba(215, 164, 65, .7); color: var(--brass); font-size: 56px; display: grid; place-items: center; }
-.editor { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100%; }
-.picker { padding: 16px 16px 24px; overflow: auto; }
-.list { background: #0e1412; border-left: 1px solid var(--line); overflow: auto; padding: 14px 0 24px; }
+.editor { display: grid; grid-template-columns: minmax(0, 1fr) 340px; flex: 1; min-height: 0; }
+.picker { padding: 16px 16px 24px; overflow: auto; min-height: 0; }
+.list { background: #0e1412; border-left: 1px solid var(--line); overflow: auto; padding: 14px 0 24px; min-height: 0; }
+@media (max-width: 720px) {
+  .topbar { gap: 4px 12px; padding: 8px 12px; }
+  .spacer { display: none; }
+  .worth { margin-left: auto; }
+  .pad { padding: 16px 12px 24px; }
+  h1 { font-size: 28px; }
+  .editor { grid-template-columns: 1fr; }
+  .list { border-left: 0; border-top: 1px solid var(--line); max-height: 42vh; }
+}
 .dname, .ddesc { display: block; width: calc(100% - 24px); margin: 0 12px 8px; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 6px 0; color: var(--ink); }
 .dname { font-family: Literata, serif; font-size: 22px; }
 .count { font-family: Literata, serif; font-size: 42px; color: var(--brass); margin: 4px 12px 8px; line-height: 1; }

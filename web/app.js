@@ -1,7 +1,10 @@
 const statusEl = document.getElementById("status");
 const preview = document.getElementById("preview");
 const colors = ["W", "U", "B", "R", "G"];
+const rarityNames = ["common", "uncommon", "rare", "mythic"];
 let selected = new Set();
+let pickedRarity = new Set();
+let priceSort = "";
 let deckId = 0;
 let face = {};
 
@@ -16,7 +19,15 @@ async function api(method, path, body) {
   const res = await fetch(path, opt);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
+  const worth = res.headers.get("X-Collection-USD");
+  if (worth) showWorth(worth);
   return data;
+}
+
+function showWorth(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return;
+  document.getElementById("worth-value").textContent = n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 function imgURL(path) {
@@ -42,8 +53,9 @@ function sectionOf(typeLine) {
 }
 
 function cellHTML(c, i, mode) {
-  const locked = c.in_other_built > 0 && (c.owned - c.in_other_built) <= 0;
-  const label = locked ? `In deck: ${c.other_decks}` : "";
+  const usedElsewhere = mode === "deck" && c.in_other_built > 0;
+  const locked = usedElsewhere && (c.owned - c.in_other_built) <= 0;
+  const label = usedElsewhere ? `In deck: ${c.other_decks}` : "";
   const src = imgURL(face[key(c)] || c.front_image);
   const art = src
     ? `<img alt="" src="${src}">`
@@ -66,6 +78,7 @@ function key(c) { return `${c.set}|${c.number}|${c.foil ? 1 : 0}`; }
 function escapeHTML(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch])); }
 
 function show(id) {
+  preview.style.display = "none";
   document.querySelectorAll(".view").forEach(v => v.classList.remove("on"));
   document.getElementById(id).classList.add("on");
   document.querySelectorAll(".topbar nav button").forEach(b => b.classList.toggle("on", b.dataset.view === id || (id === "editor" && b.dataset.view === "decks")));
@@ -92,11 +105,40 @@ function matchesColor(c) {
   return false;
 }
 
+function matchesRarity(c) {
+  if (pickedRarity.size === 0) return true;
+  return pickedRarity.has((c.rarity || "").toLowerCase());
+}
+
+function byPrice(cards) {
+  if (priceSort !== "asc" && priceSort !== "desc") return cards;
+  const priced = [];
+  const rest = [];
+  for (const c of cards) {
+    if (c.price_usd === "" || !Number.isFinite(Number(c.price_usd))) rest.push(c);
+    else priced.push(c);
+  }
+  priced.sort((a, b) => {
+    const d = Number(a.price_usd) - Number(b.price_usd);
+    if (d !== 0) return priceSort === "asc" ? d : -d;
+    return String(a.name).localeCompare(String(b.name));
+  });
+  return priced.concat(rest);
+}
+
+function visibleOwned(cards) {
+  return byPrice(cards.filter(c => matchesColor(c) && matchesRarity(c)));
+}
+
 function renderOwned(cards) {
   lastCards = cards;
-  document.getElementById("owned").innerHTML = cards.filter(matchesColor).map((c, i) => cellHTML(c, i)).join("") || `<p class="quiet">No cards yet. Look up a printing, or import a kitchen archive.</p>`;
+  const shown = visibleOwned(cards);
+  const empty = cards.length
+    ? "No cards match these filters."
+    : "No cards yet. Look up a printing, or import a kitchen archive.";
+  document.getElementById("owned").innerHTML = shown.map((c, i) => cellHTML(c, i)).join("") || `<p class="quiet">${empty}</p>`;
   document.getElementById("owned").querySelectorAll(".cell").forEach(el => {
-    el.addEventListener("click", () => previewCard(cards.filter(matchesColor)[+el.dataset.i]));
+    el.addEventListener("click", () => previewCard(shown[+el.dataset.i]));
   });
 }
 
@@ -110,7 +152,7 @@ async function loadDecks() {
   const decks = await api("GET", "/api/decks");
   const grid = document.getElementById("deckgrid");
   grid.innerHTML = decks.map(d => `<button class="box" type="button" data-id="${d.id}">
-      <div class="cover"></div>
+      ${d.cover ? `<img alt="" src="${imgURL(d.cover)}">` : `<div class="cover"></div>`}
       <div><strong>${escapeHTML(d.name || "Untitled")}</strong><span>${d.status} · ${d.cards} cards</span></div>
     </button>`).join("") + `<button class="addbox" type="button" id="newdeck" aria-label="New deck">+</button>`;
   grid.querySelectorAll(".box").forEach(el => el.addEventListener("click", () => openDeck(+el.dataset.id)));
@@ -234,29 +276,41 @@ function previewCard(c) {
     (c.back_image ? `<button type="button" id="flip">Flip</button>` : "");
 }
 
-document.body.addEventListener("mouseover", (e) => {
-  const cell = e.target.closest(".cell");
-  if (!cell) return;
-  const host = cell.parentElement.id === "pool"
-    ? lastPool.filter(matchesColor)
-    : lastCards.filter(matchesColor);
-  const c = host[+cell.dataset.i];
-  if (!c || !c.front_image) { preview.style.display = "none"; return; }
-  const r = cell.getBoundingClientRect();
+function placePreview(anchor, card) {
+  if (!card || !card.front_image) {
+    preview.style.display = "none";
+    return;
+  }
+  const r = anchor.getBoundingClientRect();
   preview.style.paddingLeft = "0";
   preview.style.paddingRight = "0";
   let left = r.right;
   if (r.right + 260 > window.innerWidth) left = Math.max(8, r.left - 260);
   preview.style.left = left + "px";
-  previewCard(c);
+  previewCard(card);
   const height = preview.offsetHeight;
   let top = r.top;
   if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
   preview.style.top = top + "px";
+}
+
+document.body.addEventListener("mouseover", (e) => {
+  const row = e.target.closest(".drow");
+  if (row) {
+    const card = lastEntries.find(en => en.set === row.dataset.set && en.number === row.dataset.number && !!en.foil === (row.dataset.foil === "1"));
+    placePreview(row, card);
+    return;
+  }
+  const cell = e.target.closest(".cell");
+  if (!cell) return;
+  const host = cell.parentElement.id === "pool"
+    ? lastPool.filter(matchesColor)
+    : visibleOwned(lastCards);
+  placePreview(cell, host[+cell.dataset.i]);
 });
 
 document.addEventListener("mousemove", (e) => {
-  if (e.target.closest(".cell") || e.target.closest("#preview")) return;
+  if (e.target.closest(".cell") || e.target.closest(".drow") || e.target.closest("#preview")) return;
   preview.style.display = "none";
 });
 
@@ -325,6 +379,23 @@ document.querySelectorAll(".topbar nav button").forEach(b => b.addEventListener(
   if (b.dataset.view === "decks") loadDecks().catch(err => say(err.message));
 }));
 
+function rarityButtons(host) {
+  host.innerHTML = rarityNames.map(r => `<button type="button" data-rarity="${r}">${r[0].toUpperCase() + r.slice(1)}</button>`).join("");
+  host.querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => {
+    const r = btn.dataset.rarity;
+    if (pickedRarity.has(r)) pickedRarity.delete(r); else pickedRarity.add(r);
+    btn.classList.toggle("on", pickedRarity.has(r));
+    renderOwned(lastCards);
+  }));
+}
+
 colorButtons(document.getElementById("colors"));
 colorButtons(document.getElementById("dcolors"));
+rarityButtons(document.getElementById("rarities"));
+document.querySelectorAll("#price-sort button").forEach(btn => btn.addEventListener("click", () => {
+  const next = btn.dataset.sort;
+  priceSort = priceSort === next ? "" : next;
+  document.querySelectorAll("#price-sort button").forEach(b => b.classList.toggle("on", b.dataset.sort === priceSort));
+  renderOwned(lastCards);
+}));
 loadCards().catch(err => say(err.message));

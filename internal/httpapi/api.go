@@ -32,6 +32,16 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
+		for i := range list {
+			other, names, err := s.OtherBuilt(list[i].SetCode, list[i].Number, list[i].Foil, 0)
+			if err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+			list[i].InOtherBuilt = other
+			list[i].OtherDecks = names
+		}
+		noteValue(w, s)
 		writeJSON(w, http.StatusOK, list)
 	})
 	mux.HandleFunc("GET /api/lookup", func(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +362,14 @@ func assertBuildable(s *store.Store, deckID int) error {
 		}
 	}
 	return nil
+}
+
+func noteValue(w http.ResponseWriter, s *store.Store) {
+	v, err := s.ValueUSD()
+	if err != nil {
+		return
+	}
+	w.Header().Set("X-Collection-USD", strconv.FormatFloat(v, 'f', 2, 64))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

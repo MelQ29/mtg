@@ -136,7 +136,7 @@ func loadDeck(s *store.Store, path, title string) error {
 		return err
 	}
 	if id == 0 {
-		id, err = s.CreateDeck(title, "Black and red, 60 cards.", "built")
+		id, err = s.CreateDeck(title, title+", 60 cards.", "built")
 		if err != nil {
 			return err
 		}
