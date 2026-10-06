@@ -212,6 +212,16 @@ func (s *Store) ValueUSD() (float64, error) {
 	return v.Float64, nil
 }
 
+// OwnedCount is the number of physical cards, counting every copy.
+func (s *Store) OwnedCount() (int, error) {
+	var n sql.NullInt64
+	err := s.db.QueryRow(`SELECT SUM(qty) FROM copies WHERE qty > 0`).Scan(&n)
+	if err != nil || !n.Valid {
+		return 0, err
+	}
+	return int(n.Int64), nil
+}
+
 // List returns owned printings. q matches name, set name, set code, or collector number.
 func (s *Store) List(q string) ([]Copy, error) {
 	q = strings.TrimSpace(q)

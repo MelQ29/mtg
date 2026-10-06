@@ -82,6 +82,9 @@ func TestCollectionValueIgnoresSearch(t *testing.T) {
 	if rec.Header().Get("X-Collection-USD") != "20.00" {
 		t.Fatalf("value %q", rec.Header().Get("X-Collection-USD"))
 	}
+	if rec.Header().Get("X-Collection-Count") != "3" {
+		t.Fatalf("count %q", rec.Header().Get("X-Collection-Count"))
+	}
 }
 
 func TestCommanderRejectsASecondCopyAndAPrice(t *testing.T) {

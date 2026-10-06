@@ -21,6 +21,8 @@ async function api(method, path, body) {
   if (!res.ok) throw new Error(data.error || res.statusText);
   const worth = res.headers.get("X-Collection-USD");
   if (worth) showWorth(worth);
+  const count = res.headers.get("X-Collection-Count");
+  if (count) showCount(count);
   return data;
 }
 
@@ -28,6 +30,12 @@ function showWorth(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return;
   document.getElementById("worth-value").textContent = n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function showCount(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return;
+  document.getElementById("worth-count").textContent = n.toLocaleString("en-US");
 }
 
 function imgURL(path) {

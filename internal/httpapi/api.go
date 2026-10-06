@@ -526,7 +526,12 @@ func noteValue(w http.ResponseWriter, s *store.Store) {
 	if err != nil {
 		return
 	}
+	n, err := s.OwnedCount()
+	if err != nil {
+		return
+	}
 	w.Header().Set("X-Collection-USD", strconv.FormatFloat(v, 'f', 2, 64))
+	w.Header().Set("X-Collection-Count", strconv.Itoa(n))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -36,6 +36,13 @@ func TestValueUSDMultipliesQuantity(t *testing.T) {
 	if got != 2.5 {
 		t.Fatalf("value %v", got)
 	}
+	count, err := s.OwnedCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 6 {
+		t.Fatalf("count %d", count)
+	}
 }
 
 func TestDeckCoverPrefersACreature(t *testing.T) {
