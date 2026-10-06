@@ -21,7 +21,11 @@ CREATE TABLE IF NOT EXISTS decks (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL CHECK (status IN ('draft', 'built'))
+    status TEXT NOT NULL CHECK (status IN ('draft', 'built')),
+    format TEXT NOT NULL DEFAULT 'kitchen',
+    commander_set TEXT NOT NULL DEFAULT '',
+    commander_number TEXT NOT NULL DEFAULT '',
+    commander_foil INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS entries (

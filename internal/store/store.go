@@ -38,12 +38,16 @@ type Copy struct {
 
 // Deck is a named list. Status is draft or built.
 type Deck struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Cards       int    `json:"cards"`
-	Cover       string `json:"cover,omitempty"`
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	Format          string `json:"format"`
+	CommanderSet    string `json:"commander_set,omitempty"`
+	CommanderNumber string `json:"commander_number,omitempty"`
+	CommanderFoil   bool   `json:"commander_foil"`
+	Cards           int    `json:"cards"`
+	Cover           string `json:"cover,omitempty"`
 }
 
 // Entry is one printing inside a deck.
@@ -56,6 +60,8 @@ type Entry struct {
 	Name       string `json:"name"`
 	ManaCost   string `json:"mana_cost"`
 	TypeLine   string `json:"type_line"`
+	Colors     string `json:"colors"`
+	Oracle     string `json:"oracle_text"`
 	FrontImage string `json:"front_image"`
 	BackImage  string `json:"back_image"`
 }
@@ -76,11 +82,29 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil
+}
+
+func migrate(db *sql.DB) error {
+	for _, q := range []string{
+		`ALTER TABLE decks ADD COLUMN format TEXT NOT NULL DEFAULT 'kitchen'`,
+		`ALTER TABLE decks ADD COLUMN commander_set TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE decks ADD COLUMN commander_number TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE decks ADD COLUMN commander_foil INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := db.Exec(q); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close releases the database.
@@ -210,7 +234,7 @@ func (s *Store) CreateDeck(name, description, status string) (int, error) {
 	if status != "draft" && status != "built" {
 		return 0, fmt.Errorf("status must be draft or built")
 	}
-	res, err := s.db.Exec(`INSERT INTO decks(name, description, status) VALUES(?, ?, ?)`, name, description, status)
+	res, err := s.db.Exec(`INSERT INTO decks(name, description, status, format) VALUES(?, ?, ?, 'kitchen')`, name, description, status)
 	if err != nil {
 		return 0, err
 	}
@@ -218,13 +242,52 @@ func (s *Store) CreateDeck(name, description, status string) (int, error) {
 	return int(id), err
 }
 
-// UpdateDeck changes name, description, and status.
-func (s *Store) UpdateDeck(id int, name, description, status string) error {
+// CreateDeckFormat inserts a deck in kitchen or commander.
+func (s *Store) CreateDeckFormat(name, description, status, format string) (int, error) {
 	if status != "draft" && status != "built" {
+		return 0, fmt.Errorf("status must be draft or built")
+	}
+	if format != "kitchen" && format != "commander" {
+		return 0, fmt.Errorf("format must be kitchen or commander")
+	}
+	res, err := s.db.Exec(`INSERT INTO decks(name, description, status, format) VALUES(?, ?, ?, ?)`, name, description, status, format)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	return int(id), err
+}
+
+// UpdateDeck changes name, description, status, format, and the commander.
+func (s *Store) UpdateDeck(d Deck) error {
+	if d.Status != "draft" && d.Status != "built" {
 		return fmt.Errorf("status must be draft or built")
 	}
-	_, err := s.db.Exec(`UPDATE decks SET name=?, description=?, status=? WHERE id=?`, name, description, status, id)
+	if d.Format == "" {
+		d.Format = "kitchen"
+	}
+	if d.Format != "kitchen" && d.Format != "commander" {
+		return fmt.Errorf("format must be kitchen or commander")
+	}
+	_, err := s.db.Exec(`UPDATE decks SET name=?, description=?, status=?, format=?, commander_set=?, commander_number=?, commander_foil=? WHERE id=?`,
+		d.Name, d.Description, d.Status, d.Format, d.CommanderSet, d.CommanderNumber, boolInt(d.CommanderFoil), d.ID)
 	return err
+}
+
+// DeleteDeck removes a deck and, through the foreign key, its cards.
+func (s *Store) DeleteDeck(id int) error {
+	res, err := s.db.Exec(`DELETE FROM decks WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("deck not found")
+	}
+	return nil
 }
 
 // DeckStatus returns the status of a deck.
@@ -237,17 +300,19 @@ func (s *Store) DeckStatus(id int) (string, error) {
 // GetDeck returns the deck and its name, description, and status.
 func (s *Store) GetDeck(id int) (Deck, error) {
 	var d Deck
+	var foil int
 	err := s.db.QueryRow(`
-		SELECT d.id, d.name, d.description, d.status, COALESCE(SUM(e.qty), 0)
+		SELECT d.id, d.name, d.description, d.status, d.format, d.commander_set, d.commander_number, d.commander_foil, COALESCE(SUM(e.qty), 0)
 		FROM decks d LEFT JOIN entries e ON e.deck_id = d.id
-		WHERE d.id=? GROUP BY d.id`, id).Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Cards)
+		WHERE d.id=? GROUP BY d.id`, id).Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Format, &d.CommanderSet, &d.CommanderNumber, &foil, &d.Cards)
+	d.CommanderFoil = foil == 1
 	return d, err
 }
 
 // ListDecks returns every deck with its card count.
 func (s *Store) ListDecks() ([]Deck, error) {
 	rows, err := s.db.Query(`
-		SELECT d.id, d.name, d.description, d.status, COALESCE(SUM(e.qty), 0),
+		SELECT d.id, d.name, d.description, d.status, d.format, d.commander_set, d.commander_number, d.commander_foil, COALESCE(SUM(e.qty), 0),
 			COALESCE((
 				SELECT c.front_image
 				FROM entries e2
@@ -269,9 +334,11 @@ func (s *Store) ListDecks() ([]Deck, error) {
 	var out []Deck
 	for rows.Next() {
 		var d Deck
-		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Cards, &d.Cover); err != nil {
+		var foil int
+		if err := rows.Scan(&d.ID, &d.Name, &d.Description, &d.Status, &d.Format, &d.CommanderSet, &d.CommanderNumber, &foil, &d.Cards, &d.Cover); err != nil {
 			return nil, err
 		}
+		d.CommanderFoil = foil == 1
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -280,7 +347,7 @@ func (s *Store) ListDecks() ([]Deck, error) {
 // Entries lists cards in a deck, joined to the collection for name and mana.
 func (s *Store) Entries(deckID int) ([]Entry, error) {
 	rows, err := s.db.Query(`
-		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, ''), COALESCE(c.front_image, ''), COALESCE(c.back_image, '')
+		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, ''), COALESCE(c.colors, ''), COALESCE(c.oracle_text, ''), COALESCE(c.front_image, ''), COALESCE(c.back_image, '')
 		FROM entries e
 		LEFT JOIN copies c ON c.set_code=e.set_code AND c.collector_number=e.collector_number AND c.foil=e.foil
 		WHERE e.deck_id=?
@@ -293,7 +360,7 @@ func (s *Store) Entries(deckID int) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var foil int
-		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine, &e.FrontImage, &e.BackImage); err != nil {
+		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine, &e.Colors, &e.Oracle, &e.FrontImage, &e.BackImage); err != nil {
 			return nil, err
 		}
 		e.Foil = foil == 1

@@ -84,6 +84,58 @@ func TestCollectionValueIgnoresSearch(t *testing.T) {
 	}
 }
 
+func TestCommanderRejectsASecondCopyAndAPrice(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.AddCopy("ecl", "1", false, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "ecl", Number: "1", Name: "Overkill", TypeLine: "Instant", Colors: "B", PriceUSD: "0.30"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddCopy("trk", "321", false, 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "trk", Number: "321", Name: "Swamp", TypeLine: "Basic Land — Swamp", Colors: "B"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddCopy("ecl", "317", false, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "ecl", Number: "317", Name: "Hexing Squelcher", TypeLine: "Creature — Goblin", PriceUSD: "29.59"}); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(s, fakeCards{}, t.TempDir())
+	rec := postJSON(t, h, "/api/decks", `{"name":"Cmd","description":"","status":"draft","format":"commander"}`)
+	if rec.Code != 200 {
+		t.Fatal(rec.Body.String())
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"ecl","number":"1","foil":false,"qty":1}`).Code != 200 {
+		t.Fatal("first spell")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"ecl","number":"1","foil":false,"qty":1}`).Code != 409 {
+		t.Fatal("second copy")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"trk","number":"321","foil":false,"qty":2}`).Code != 200 {
+		t.Fatal("basics")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"ecl","number":"317","foil":false,"qty":1}`).Code != 409 {
+		t.Fatal("price")
+	}
+	del := httptest.NewRequest(http.MethodDelete, "/api/decks/1", nil)
+	out := httptest.NewRecorder()
+	h.ServeHTTP(out, del)
+	if out.Code != 200 {
+		t.Fatal(out.Body.String())
+	}
+	if _, err := s.GetDeck(1); err == nil {
+		t.Fatal("deck still exists")
+	}
+}
+
 func TestCollectionShowsABuiltDeck(t *testing.T) {
 	h := handlerWithOneHexing(t)
 	if postJSON(t, h, "/api/decks", `{"name":"White-Black","description":"","status":"built"}`).Code != 200 {

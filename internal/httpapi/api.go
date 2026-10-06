@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/MelQ29/mtg/internal/alloc"
 	"github.com/MelQ29/mtg/internal/backup"
+	"github.com/MelQ29/mtg/internal/deckrules"
 	"github.com/MelQ29/mtg/internal/images"
 	"github.com/MelQ29/mtg/internal/scryfall"
 	"github.com/MelQ29/mtg/internal/store"
@@ -143,6 +145,7 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			Name        string `json:"name"`
 			Description string `json:"description"`
 			Status      string `json:"status"`
+			Format      string `json:"format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -151,7 +154,11 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 		if body.Status == "" {
 			body.Status = "draft"
 		}
-		id, err := s.CreateDeck(body.Name, body.Description, body.Status)
+		format := body.Format
+		if format == "" {
+			format = "kitchen"
+		}
+		id, err := s.CreateDeckFormat(body.Name, body.Description, body.Status, format)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -177,7 +184,19 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 		if entries == nil {
 			entries = []store.Entry{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"deck": d, "entries": entries})
+		writeJSON(w, http.StatusOK, map[string]any{"deck": d, "entries": entries, "problems": commanderProblems(s, d, entries)})
+	})
+	mux.HandleFunc("DELETE /api/decks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := s.DeleteDeck(id); err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("PATCH /api/decks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.Atoi(r.PathValue("id"))
@@ -191,31 +210,56 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			return
 		}
 		var body struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-			Status      *string `json:"status"`
+			Name           *string `json:"name"`
+			Description    *string `json:"description"`
+			Status         *string `json:"status"`
+			Format         *string `json:"format"`
+			ClearCommander *bool   `json:"clear_commander"`
+			Commander      *struct {
+				Set    string `json:"set"`
+				Number string `json:"number"`
+				Foil   bool   `json:"foil"`
+			} `json:"commander"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		name, desc, status := current.Name, current.Description, current.Status
 		if body.Name != nil {
-			name = *body.Name
+			current.Name = *body.Name
 		}
 		if body.Description != nil {
-			desc = *body.Description
+			current.Description = *body.Description
 		}
 		if body.Status != nil {
-			status = *body.Status
+			current.Status = *body.Status
 		}
-		if status == "built" && current.Status != "built" {
-			if err := assertBuildable(s, id); err != nil {
+		if body.Format != nil {
+			current.Format = *body.Format
+		}
+		if body.ClearCommander != nil && *body.ClearCommander {
+			current.CommanderSet, current.CommanderNumber, current.CommanderFoil = "", "", false
+		}
+		if body.Commander != nil {
+			if err := setCommander(s, &current, body.Commander.Set, body.Commander.Number, body.Commander.Foil); err != nil {
 				fail(w, http.StatusConflict, err)
 				return
 			}
 		}
-		if err := s.UpdateDeck(id, name, desc, status); err != nil {
+		if current.Status == "built" {
+			fresh, err := s.GetDeck(id)
+			if err != nil {
+				fail(w, http.StatusNotFound, err)
+				return
+			}
+			if fresh.Status != "built" {
+				if err := assertBuildable(s, id); err != nil {
+					fail(w, http.StatusConflict, err)
+					return
+				}
+			}
+		}
+		if err := s.UpdateDeck(current); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
@@ -240,6 +284,17 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 		if body.Qty == 0 {
 			body.Qty = 1
 		}
+		deck, err := s.GetDeck(id)
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		if body.Qty > 0 {
+			if err := checkAdd(s, deck, body.Set, body.Number, body.Foil, body.Qty); err != nil {
+				fail(w, http.StatusConflict, err)
+				return
+			}
+		}
 		next, err := s.ApplyEntryDelta(id, body.Set, body.Number, body.Foil, body.Qty)
 		if err != nil {
 			if err.Error() == "not enough free copies" || err.Error() == "not enough owned copies" {
@@ -252,6 +307,13 @@ func Handler(s *store.Store, cards Cards, imageDir string) http.Handler {
 			}
 			fail(w, http.StatusBadRequest, err)
 			return
+		}
+		if next == 0 && deck.CommanderSet == body.Set && deck.CommanderNumber == body.Number && deck.CommanderFoil == body.Foil {
+			deck.CommanderSet, deck.CommanderNumber, deck.CommanderFoil = "", "", false
+			if err := s.UpdateDeck(deck); err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "qty": next})
 	})
@@ -318,12 +380,18 @@ func lookup(cards Cards, q string) ([]scryfall.Printing, error) {
 	parts := strings.Fields(q)
 	if len(parts) == 2 && isNumber(parts[1]) {
 		p, err := cards.Fetch(strings.ToLower(parts[0]), parts[1])
-		if err != nil {
+		if err == nil {
+			return []scryfall.Printing{p}, nil
+		}
+		if !scryfall.NotFound(err) {
 			return nil, err
 		}
-		return []scryfall.Printing{p}, nil
 	}
-	return cards.Search(q)
+	prints, err := cards.Search(q)
+	if scryfall.NotFound(err) {
+		return []scryfall.Printing{}, nil
+	}
+	return prints, err
 }
 
 func isNumber(s string) bool {
@@ -341,6 +409,95 @@ func isNumber(s string) bool {
 		}
 	}
 	return digits
+}
+
+func ruleCards(entries []store.Entry) []deckrules.Card {
+	out := make([]deckrules.Card, len(entries))
+	for i, e := range entries {
+		out[i] = deckrules.Card{Name: e.Name, TypeLine: e.TypeLine, Colors: e.Colors, Oracle: e.Oracle, Qty: e.Qty}
+	}
+	return out
+}
+
+func tooExpensive(price string) bool {
+	if price == "" {
+		return false
+	}
+	n, err := strconv.ParseFloat(price, 64)
+	return err == nil && n > 6
+}
+
+func checkAdd(s *store.Store, deck store.Deck, set, number string, foil bool, qty int) error {
+	card, ok, err := s.Get(set, number, foil)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("card is not in the collection")
+	}
+	if tooExpensive(card.PriceUSD) {
+		return fmt.Errorf("cards over $6 stay in the collection")
+	}
+	entries, err := s.Entries(deck.ID)
+	if err != nil {
+		return err
+	}
+	var leader deckrules.Card
+	has := deck.CommanderSet != ""
+	if has {
+		c, ok, err := s.Get(deck.CommanderSet, deck.CommanderNumber, deck.CommanderFoil)
+		if err != nil {
+			return err
+		}
+		if ok {
+			leader = deckrules.Card{Name: c.Name, TypeLine: c.TypeLine, Colors: c.Colors, Oracle: c.OracleText}
+		}
+	}
+	return deckrules.CheckAdd(deck.Format, leader, has, ruleCards(entries), deckrules.Card{
+		Name: card.Name, TypeLine: card.TypeLine, Colors: card.Colors, Oracle: card.OracleText,
+	}, qty)
+}
+
+func setCommander(s *store.Store, deck *store.Deck, set, number string, foil bool) error {
+	n, err := s.EntryQty(deck.ID, set, number, foil)
+	if err != nil {
+		return err
+	}
+	if n <= 0 {
+		return fmt.Errorf("the commander has to be in the deck")
+	}
+	card, ok, err := s.Get(set, number, foil)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("card is not in the collection")
+	}
+	entries, err := s.Entries(deck.ID)
+	if err != nil {
+		return err
+	}
+	leader := deckrules.Card{Name: card.Name, TypeLine: card.TypeLine, Colors: card.Colors, Oracle: card.OracleText}
+	if err := deckrules.CheckCommander(leader, ruleCards(entries)); err != nil {
+		return err
+	}
+	deck.CommanderSet, deck.CommanderNumber, deck.CommanderFoil = set, number, foil
+	return nil
+}
+
+func commanderProblems(s *store.Store, deck store.Deck, entries []store.Entry) []string {
+	var leader deckrules.Card
+	has := deck.CommanderSet != ""
+	if has {
+		if c, ok, err := s.Get(deck.CommanderSet, deck.CommanderNumber, deck.CommanderFoil); err == nil && ok {
+			leader = deckrules.Card{Name: c.Name, TypeLine: c.TypeLine, Colors: c.Colors, Oracle: c.OracleText}
+		}
+	}
+	out := deckrules.Problems(deck.Format, leader, has, ruleCards(entries))
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func assertBuildable(s *store.Store, deckID int) error {

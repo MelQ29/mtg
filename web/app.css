@@ -56,7 +56,6 @@ h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 
 .decks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
 .box, .addbox { height: 280px; border-radius: 10px; overflow: hidden; position: relative; border: 0; padding: 0; text-align: left; color: inherit; background: #1b2420; }
 .box img, .box .cover { width: 100%; height: 180px; object-fit: cover; object-position: top; display: block; background: #24302b; }
-.box div { padding: 12px 14px; }
 .box strong { display: block; font-size: 18px; }
 .box span { color: var(--dim); font-size: 13px; }
 .addbox { background: transparent; border: 1px dashed rgba(215, 164, 65, .7); color: var(--brass); font-size: 56px; display: grid; place-items: center; }
@@ -84,5 +83,21 @@ h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 
 .preview { position: fixed; width: 260px; z-index: 4; display: none; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; }
 .preview img { width: 100%; border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
 .preview button { margin-top: 8px; background: var(--ink); color: #121816; border: 0; border-radius: 999px; padding: 4px 10px; font-weight: 750; }
-.modes { display: flex; gap: 8px; margin: 0 12px 8px; }
-.modes button.on { color: #121816; background: var(--brass); border-radius: 999px; }
+.ghost, .modes button, .trash {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 12px;
+}
+.modes { display: flex; gap: 8px; margin: 0 12px 8px; flex-wrap: wrap; }
+.modes button.on, .cmd.on { color: #121816; background: var(--brass); border-color: var(--brass); font-weight: 750; }
+.boxbody { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 12px 14px; }
+.boxbody .trash { position: static; flex: none; margin-top: 2px; padding: 3px 8px; font-size: 12px; }
+.format { margin-bottom: 28px; }
+.format h2 { font-family: Literata, serif; font-weight: 560; font-size: 22px; margin: 0 0 12px; }
+.format h2 span { display: block; font-family: Manrope, sans-serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin-top: 2px; }
+.problems { margin: 0 12px 8px; color: var(--brass); font-size: 13px; }
+.commander-pick { display: block; margin: 0 12px 8px; color: var(--dim); font-size: 13px; }
+.commander-pick select { display: block; margin-top: 4px; width: calc(100% - 0px); background: #0d1210; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.life { margin: -4px 12px 8px; color: var(--dim); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }

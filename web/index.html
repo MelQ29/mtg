@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kitchen</title>
+<title>Vault</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,560&family=Manrope:wght@460;600;750&display=swap" rel="stylesheet">
@@ -11,7 +12,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="word">KITCHEN</div>
+  <div class="word">VAULT</div>
   <nav>
     <button class="on" type="button" data-view="collection">Collection</button>
     <button type="button" data-view="decks">Decks</button>
@@ -29,7 +30,7 @@
   <h1>Collection</h1>
   <div class="toolbar">
     <input class="search" id="q" placeholder="Name, set, or ecl 317">
-    <button type="button" id="lookup">Look up</button>
+    <button type="button" class="ghost" id="lookup">Look up</button>
     <div class="colors" id="colors"></div>
     <div class="rarities" id="rarities"></div>
     <div class="price-filter" id="price-sort">
@@ -43,13 +44,13 @@
 </section>
 <section class="view pad" id="decks">
   <h1>Decks</h1>
-  <div class="decks" id="deckgrid"></div>
+  <div id="deckgrid"></div>
 </section>
 <section class="view" id="editor">
   <div class="editor">
     <div class="picker">
       <div class="toolbar">
-        <button type="button" id="back">Decks</button>
+        <button type="button" class="ghost" id="back">Decks</button>
         <input class="search" id="dq" placeholder="Search the collection">
         <div class="colors" id="dcolors"></div>
       </div>

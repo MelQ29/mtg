@@ -87,7 +87,12 @@ func (s *Store) restore(snap Snapshot) error {
 		}
 	}
 	for _, d := range snap.Decks {
-		if _, err := tx.Exec(`INSERT INTO decks(id, name, description, status) VALUES(?, ?, ?, ?)`, d.ID, d.Name, d.Description, d.Status); err != nil {
+		format := d.Format
+		if format == "" {
+			format = "kitchen"
+		}
+		if _, err := tx.Exec(`INSERT INTO decks(id, name, description, status, format, commander_set, commander_number, commander_foil) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.ID, d.Name, d.Description, d.Status, format, d.CommanderSet, d.CommanderNumber, boolInt(d.CommanderFoil)); err != nil {
 			return err
 		}
 	}

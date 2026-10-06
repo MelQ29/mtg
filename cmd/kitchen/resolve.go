@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/MelQ29/mtg/internal/images"
@@ -146,6 +147,10 @@ func loadDeck(s *store.Store, path, title string) error {
 		card, ok := byName[scryfall.FoldName(name)]
 		if !ok {
 			log.Printf("deck skip, not in collection: %s", row.Name)
+			continue
+		}
+		if price, err := strconv.ParseFloat(card.PriceUSD, 64); err == nil && card.PriceUSD != "" && price > 6 {
+			log.Printf("deck skip, over $6: %s ($%s)", row.Name, card.PriceUSD)
 			continue
 		}
 		have, err := s.EntryQty(id, card.SetCode, card.Number, card.Foil)

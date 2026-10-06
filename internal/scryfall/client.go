@@ -130,17 +130,31 @@ func deref(s *string) string {
 // Client calls the Scryfall API with a polite pause between requests.
 type Client struct {
 	HTTP *http.Client
+	Base string
 	mu   sync.Mutex
 	last time.Time
+}
+
+func (c *Client) endpoint(path string) string {
+	base := c.Base
+	if base == "" {
+		base = "https://api.scryfall.com"
+	}
+	return base + path
+}
+
+// NotFound reports a Scryfall search or card request that matched nothing.
+func NotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "404")
 }
 
 // Named loads the canonical printing for a card name.
 // Exact match is tried first. A fuzzy hit is kept only when the names still agree
 // once case and punctuation are ignored, so a wrong card is not stored.
 func (c *Client) Named(name string) (Printing, error) {
-	body, err := c.get("https://api.scryfall.com/cards/named?exact=" + url.QueryEscape(name))
+	body, err := c.get(c.endpoint("/cards/named?exact=" + url.QueryEscape(name)))
 	if err != nil {
-		body, err = c.get("https://api.scryfall.com/cards/named?fuzzy=" + url.QueryEscape(name))
+		body, err = c.get(c.endpoint("/cards/named?fuzzy=" + url.QueryEscape(name)))
 		if err != nil {
 			return Printing{}, err
 		}
@@ -176,17 +190,42 @@ func FoldName(s string) string {
 
 // Fetch loads one printing by set code and collector number.
 func (c *Client) Fetch(set, number string) (Printing, error) {
-	body, err := c.get("https://api.scryfall.com/cards/" + url.PathEscape(set) + "/" + url.PathEscape(number))
+	body, err := c.get(c.endpoint("/cards/" + url.PathEscape(set) + "/" + url.PathEscape(number)))
 	if err != nil {
 		return Printing{}, err
 	}
 	return ParseCard(body)
 }
 
-// SearchPrintings lists every printing of an exact card name.
+// SearchPrintings lists printings for a name. An exact name is tried first.
+// A partial name is used when that matches nothing, and no match is an empty list.
 func (c *Client) SearchPrintings(name string) ([]Printing, error) {
-	q := url.QueryEscape(`!"` + name + `" unique:prints`)
-	body, err := c.get("https://api.scryfall.com/cards/search?q=" + q)
+	clean := strings.ReplaceAll(strings.TrimSpace(name), `"`, "")
+	out, err := c.search(`!"` + clean + `" unique:prints`)
+	if err == nil && len(out) > 0 {
+		return out, nil
+	}
+	if err != nil && !NotFound(err) {
+		return nil, err
+	}
+	if p, namedErr := c.Named(clean); namedErr == nil {
+		out, err = c.search(`!"` + strings.ReplaceAll(p.Name, `"`, "") + `" unique:prints`)
+		if err == nil && len(out) > 0 {
+			return out, nil
+		}
+		if err != nil && !NotFound(err) {
+			return nil, err
+		}
+	}
+	out, err = c.search(`name:"` + clean + `" unique:prints`)
+	if NotFound(err) {
+		return []Printing{}, nil
+	}
+	return out, err
+}
+
+func (c *Client) search(query string) ([]Printing, error) {
+	body, err := c.get(c.endpoint("/cards/search?q=" + url.QueryEscape(query)))
 	if err != nil {
 		return nil, err
 	}

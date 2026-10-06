@@ -52,10 +52,15 @@ function sectionOf(typeLine) {
   return "Spells";
 }
 
+function overSix(c) {
+  return c.price_usd !== "" && Number(c.price_usd) > 6;
+}
+
 function cellHTML(c, i, mode) {
+  const pricey = mode === "deck" && overSix(c);
   const usedElsewhere = mode === "deck" && c.in_other_built > 0;
-  const locked = usedElsewhere && (c.owned - c.in_other_built) <= 0;
-  const label = usedElsewhere ? `In deck: ${c.other_decks}` : "";
+  const locked = pricey || (usedElsewhere && (c.owned - c.in_other_built) <= 0);
+  const label = pricey ? "Over $6" : (usedElsewhere ? `In deck: ${c.other_decks}` : "");
   const src = imgURL(face[key(c)] || c.front_image);
   const art = src
     ? `<img alt="" src="${src}">`
@@ -135,7 +140,7 @@ function renderOwned(cards) {
   const shown = visibleOwned(cards);
   const empty = cards.length
     ? "No cards match these filters."
-    : "No cards yet. Look up a printing, or import a kitchen archive.";
+    : "No cards yet. Look up a printing, or import a collection archive.";
   document.getElementById("owned").innerHTML = shown.map((c, i) => cellHTML(c, i)).join("") || `<p class="quiet">${empty}</p>`;
   document.getElementById("owned").querySelectorAll(".cell").forEach(el => {
     el.addEventListener("click", () => previewCard(shown[+el.dataset.i]));
@@ -148,18 +153,40 @@ async function loadCards() {
   renderOwned(cards);
 }
 
+function deckTile(d) {
+  const name = d.name || "Untitled";
+  return `<div class="box" data-id="${d.id}">
+      ${d.cover ? `<img alt="" src="${imgURL(d.cover)}">` : `<div class="cover"></div>`}
+      <div class="boxbody"><div><strong>${escapeHTML(name)}</strong><span>${escapeHTML(d.status)} · ${d.cards} cards</span></div><button type="button" class="trash" data-id="${d.id}" data-name="${escapeHTML(name)}">Delete</button></div>
+    </div>`;
+}
+
 async function loadDecks() {
   const decks = await api("GET", "/api/decks");
+  const sections = [
+    ["kitchen", "60-card", "60 cards · 20 life"],
+    ["commander", "Commander", "100 cards · 40 life"],
+  ];
   const grid = document.getElementById("deckgrid");
-  grid.innerHTML = decks.map(d => `<button class="box" type="button" data-id="${d.id}">
-      ${d.cover ? `<img alt="" src="${imgURL(d.cover)}">` : `<div class="cover"></div>`}
-      <div><strong>${escapeHTML(d.name || "Untitled")}</strong><span>${d.status} · ${d.cards} cards</span></div>
-    </button>`).join("") + `<button class="addbox" type="button" id="newdeck" aria-label="New deck">+</button>`;
-  grid.querySelectorAll(".box").forEach(el => el.addEventListener("click", () => openDeck(+el.dataset.id)));
-  document.getElementById("newdeck").addEventListener("click", async () => {
-    const created = await api("POST", "/api/decks", { name: "New deck", description: "", status: "draft" });
+  grid.innerHTML = sections.map(([format, title, note]) => {
+    const mine = decks.filter(d => (d.format || "kitchen") === format);
+    return `<section class="format"><h2>${title}<span>${note}</span></h2><div class="decks">${mine.map(deckTile).join("")}<button class="addbox" type="button" data-format="${format}" aria-label="New ${title} deck">+</button></div></section>`;
+  }).join("");
+  grid.querySelectorAll(".box").forEach(el => el.addEventListener("click", (e) => {
+    if (e.target.closest(".trash")) return;
+    openDeck(+el.dataset.id);
+  }));
+  grid.querySelectorAll(".trash").forEach(el => el.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!confirm("Delete " + el.dataset.name + "? The cards stay in the collection.")) return;
+    await api("DELETE", "/api/decks/" + el.dataset.id);
+    if (deckId === +el.dataset.id) show("decks");
+    await loadDecks();
+  }));
+  grid.querySelectorAll(".addbox").forEach(el => el.addEventListener("click", async () => {
+    const created = await api("POST", "/api/decks", { name: "New deck", description: "", status: "draft", format: el.dataset.format });
     openDeck(created.id);
-  });
+  }));
 }
 
 async function openDeck(id) {
@@ -177,7 +204,15 @@ async function refreshDeck() {
   lastEntries = detail.entries;
   lastPool = pool;
   renderPool(pool);
-  renderList(detail.deck, detail.entries);
+  renderList(detail.deck, detail.entries, detail.problems || []);
+}
+
+function canBeCommander(e) {
+  const tl = (e.type_line || "").toLowerCase();
+  const oracle = (e.oracle_text || "").toLowerCase();
+  if (oracle.includes("can be your commander")) return true;
+  if (!tl.includes("legendary")) return false;
+  return tl.includes("creature") || tl.includes("vehicle") || tl.includes("spacecraft");
 }
 
 function renderPool(pool) {
@@ -189,8 +224,11 @@ function renderPool(pool) {
   });
 }
 
-function renderList(deck, entries) {
+function renderList(deck, entries, problems) {
   const total = entries.reduce((n, e) => n + e.qty, 0);
+  const format = deck.format || "kitchen";
+  const target = format === "commander" ? 100 : 60;
+  const life = format === "commander" ? 40 : 20;
   const groups = { Creatures: [], Spells: [], Lands: [] };
   for (const e of entries) groups[sectionOf(e.type_line)].push(e);
   let rows = "";
@@ -199,8 +237,9 @@ function renderList(deck, entries) {
     if (!list.length) continue;
     rows += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div>`;
     for (const e of list) {
+      const lead = format === "commander" && deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
       rows += `<button class="drow" type="button" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
-        <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}</span><span>${pips(e.mana_cost)}</span>
+        <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span>${pips(e.mana_cost)}</span>
       </button>`;
     }
   }
@@ -211,15 +250,70 @@ function renderList(deck, entries) {
       <button type="button" id="mode-draft" class="${deck.status === "draft" ? "on" : ""}">Draft</button>
       <button type="button" id="mode-built" class="${deck.status === "built" ? "on" : ""}">Built</button>
     </div>
-    <div class="count">${total}<small> / 60</small></div>
+    <div class="modes">
+      <button type="button" data-format="kitchen" class="${format === "kitchen" ? "on" : ""}">60-card</button>
+      <button type="button" data-format="commander" class="${format === "commander" ? "on" : ""}">Commander</button>
+    </div>
+    <div class="count">${total}<small> / ${target}</small></div>
+    <p class="life">${life} life</p>
+    ${format === "commander" ? commanderSelect(deck, entries) : ""}
+    ${(problems || []).map(p => `<p class="problems">${escapeHTML(p)}</p>`).join("")}
+    <button type="button" class="ghost" id="delete-deck">Delete deck</button>
     ${rows}`;
   document.getElementById("dname").addEventListener("change", saveMeta);
   document.getElementById("ddesc").addEventListener("change", saveMeta);
   document.getElementById("mode-draft").addEventListener("click", () => saveStatus("draft"));
   document.getElementById("mode-built").addEventListener("click", () => saveStatus("built"));
+  document.querySelectorAll("#list [data-format]").forEach(btn => btn.addEventListener("click", () => saveFormat(btn.dataset.format)));
+  const picker = document.getElementById("commander");
+  if (picker) picker.addEventListener("change", () => saveCommander(picker.value));
+  document.getElementById("delete-deck").addEventListener("click", deleteDeck);
   document.getElementById("list").querySelectorAll(".drow").forEach(el => {
     el.addEventListener("click", () => removeCopy(el.dataset.set, el.dataset.number, el.dataset.foil === "1"));
   });
+}
+
+function commanderSelect(deck, entries) {
+  const options = entries.filter(canBeCommander).map(e => {
+    const value = `${e.set}|${e.number}|${e.foil ? 1 : 0}`;
+    const on = deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
+    return `<option value="${escapeHTML(value)}"${on ? " selected" : ""}>${escapeHTML(e.name)}</option>`;
+  }).join("");
+  return `<label class="commander-pick">Commander<select id="commander"><option value="">Choose</option>${options}</select></label>`;
+}
+
+async function saveFormat(format) {
+  try {
+    await api("PATCH", "/api/decks/" + deckId, { format });
+    await refreshDeck();
+  } catch (err) {
+    say(err.message);
+  }
+}
+
+async function saveCommander(value) {
+  try {
+    if (!value) {
+      await api("PATCH", "/api/decks/" + deckId, { clear_commander: true });
+    } else {
+      const [set, number, foil] = value.split("|");
+      await api("PATCH", "/api/decks/" + deckId, { commander: { set, number, foil: foil === "1" } });
+    }
+    say("");
+    await refreshDeck();
+  } catch (err) {
+    say(err.message);
+    await refreshDeck();
+  }
+}
+
+async function deleteDeck() {
+  const name = document.getElementById("dname").value || "this deck";
+  if (!confirm("Delete " + name + "? The cards stay in the collection.")) return;
+  await api("DELETE", "/api/decks/" + deckId);
+  deckId = 0;
+  show("decks");
+  await loadDecks();
 }
 
 async function saveMeta() {
@@ -240,6 +334,10 @@ async function saveStatus(status) {
 }
 
 async function addCopy(c) {
+  if (overSix(c)) {
+    say("Cards over $6 stay in the collection.");
+    return;
+  }
   const free = c.owned - c.in_other_built - c.in_this;
   if (free <= 0 && c.other_decks) {
     say("In deck: " + c.other_decks);
@@ -369,7 +467,8 @@ async function lookup() {
       });
     });
   } catch (err) {
-    say(err.message);
+    document.getElementById("results").innerHTML = `<p class="quiet">No printing found.</p>`;
+    say("No printing found.");
   }
 }
 
