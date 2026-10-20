@@ -6,6 +6,10 @@
 /exports/
 *.kitchen.zip
 
+# Go toolchain downloaded by Vault.bat, and its logs
+/.tools/
+/logs/
+
 # Go build output
 /kitchen
 /bin/

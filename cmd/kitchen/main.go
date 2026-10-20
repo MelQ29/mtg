@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/MelQ29/mtg/internal/backup"
 	"github.com/MelQ29/mtg/internal/httpapi"
 	"github.com/MelQ29/mtg/internal/importmd"
 	"github.com/MelQ29/mtg/internal/scryfall"
@@ -19,6 +20,8 @@ func main() {
 	dbPath := flag.String("db", "data/kitchen.db", "sqlite file, kept out of git")
 	imageDir := flag.String("images", "data/images", "downloaded card images, kept out of git")
 	importPath := flag.String("import", "", "markdown collection to load once into the local database")
+	archivePath := flag.String("archive", "", "kitchen collection zip to import before serving")
+	reimport := flag.Bool("reimport", false, "replace an existing collection with -archive")
 	resolve := flag.Bool("resolve", false, "download Scryfall art for cards that have none")
 	deckPath := flag.String("deck", "", "markdown deck to add as a built deck")
 	deckName := flag.String("deck-name", "Black-Red", "name for -deck")
@@ -36,6 +39,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer s.Close()
+	if err := importArchive(s, *imageDir, *archivePath, *reimport); err != nil {
+		log.Fatal(err)
+	}
 	if *importPath != "" {
 		if err := loadMarkdown(s, *importPath); err != nil {
 			log.Fatal(err)
@@ -68,6 +74,31 @@ func main() {
 
 	log.Printf("kitchen listening on http://%s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
+}
+
+// importArchive loads a zip from Export. An existing collection is left
+// alone unless reimport is set, so a second launch does not wipe edits.
+func importArchive(s *store.Store, imageDir, path string, reimport bool) error {
+	if path == "" {
+		return nil
+	}
+	n, err := s.OwnedCount()
+	if err != nil {
+		return err
+	}
+	if n > 0 && !reimport {
+		log.Printf("collection already has %d cards; not importing %s", n, path)
+		return nil
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := backup.Import(s, imageDir, blob); err != nil {
+		return err
+	}
+	log.Printf("imported collection archive %s", path)
+	return nil
 }
 
 func loadMarkdown(s *store.Store, path string) error {
