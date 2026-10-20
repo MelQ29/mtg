@@ -8,6 +8,7 @@ let priceSort = "";
 let foilOnly = false;
 let deckId = 0;
 let face = {};
+let deckView = localStorage.getItem("vault-deck-view") === "cards" ? "cards" : "list";
 
 function say(text) { statusEl.textContent = text || ""; }
 
@@ -260,27 +261,68 @@ function renderPool(pool) {
   });
 }
 
-function renderList(deck, entries, problems) {
-  const total = entries.reduce((n, e) => n + e.qty, 0);
-  const format = deck.format || "kitchen";
-  const target = format === "commander" ? 100 : 60;
-  const life = format === "commander" ? 40 : 20;
+function isCommander(deck, e, format) {
+  return format === "commander" && deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
+}
+
+function deckGroups(entries) {
   const groups = { Creatures: [], Spells: [], Lands: [] };
   for (const e of entries) groups[sectionOf(e.type_line)].push(e);
+  return groups;
+}
+
+function deckListRows(deck, groups, format) {
   let rows = "";
   for (const name of ["Creatures", "Spells", "Lands"]) {
     const list = groups[name];
     if (!list.length) continue;
     rows += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div>`;
     for (const e of list) {
-      const lead = format === "commander" && deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
+      const lead = isCommander(deck, e, format);
       const price = money(e.price_usd) || "—";
       rows += `<button class="drow" type="button" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
         <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span class="tail">${e.foil ? `<i class="foil-tag">foil</i>` : ""}${pips(e.mana_cost)}</span><span class="px">${price}</span>
       </button>`;
     }
   }
-  document.getElementById("list").innerHTML = `
+  return rows;
+}
+
+function deckCardBoard(deck, groups, format) {
+  let board = "";
+  for (const name of ["Creatures", "Spells", "Lands"]) {
+    const list = groups[name];
+    if (!list.length) continue;
+    const cards = list.map(e => {
+      const lead = isCommander(deck, e, format);
+      const src = imgURL(e.front_image);
+      const art = src
+        ? `<img alt="" src="${src}">`
+        : `<div class="plate">${escapeHTML(e.name || "Card")}</div>`;
+      return `<button class="dcard${lead ? " commander" : ""}" type="button" title="Remove one copy" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
+        <div class="art${e.foil ? " is-foil" : ""}">${art}
+          ${e.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
+          <span class="badge">×${e.qty}</span>
+          ${lead ? `<span class="veil">Commander</span>` : ""}
+        </div>
+      </button>`;
+    }).join("");
+    board += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div><div class="deck-cards">${cards}</div>`;
+  }
+  return board || `<p class="quiet deck-empty">No cards in this deck yet.</p>`;
+}
+
+function renderList(deck, entries, problems) {
+  const total = entries.reduce((n, e) => n + e.qty, 0);
+  const format = deck.format || "kitchen";
+  const target = format === "commander" ? 100 : 60;
+  const life = format === "commander" ? 40 : 20;
+  const groups = deckGroups(entries);
+  const body = deckView === "cards" ? deckCardBoard(deck, groups, format) : deckListRows(deck, groups, format);
+  const list = document.getElementById("list");
+  const scroll = list.scrollTop;
+  document.querySelector(".editor").classList.toggle("cards-view", deckView === "cards");
+  list.innerHTML = `
     <input class="dname" id="dname" value="${escapeHTML(deck.name)}" aria-label="Deck name">
     <input class="ddesc" id="ddesc" value="${escapeHTML(deck.description)}" aria-label="Description">
     <div class="modes">
@@ -293,13 +335,18 @@ function renderList(deck, entries, problems) {
     </div>
     <div class="count">${total}<small> / ${target}</small></div>
     <p class="life">${life} life</p>
+    <div class="modes">
+      <button type="button" data-deck-view="list" class="${deckView === "list" ? "on" : ""}">List</button>
+      <button type="button" data-deck-view="cards" class="${deckView === "cards" ? "on" : ""}">Cards</button>
+    </div>
     ${format === "commander" ? commanderSelect(deck, entries) : ""}
     ${(problems || []).map(p => `<p class="problems">${escapeHTML(p)}</p>`).join("")}
     <div class="deck-foot">
       <button type="button" class="ghost" id="delete-deck">Delete deck</button>
       <div class="deck-worth" title="Value of the copies in this deck">${deckWorth(entries)}</div>
     </div>
-    ${rows}`;
+    ${body}`;
+  list.scrollTop = scroll;
   document.getElementById("dname").addEventListener("change", saveMeta);
   document.getElementById("ddesc").addEventListener("change", saveMeta);
   document.getElementById("mode-draft").addEventListener("click", () => saveStatus("draft"));
@@ -308,7 +355,17 @@ function renderList(deck, entries, problems) {
   const picker = document.getElementById("commander");
   if (picker) picker.addEventListener("change", () => saveCommander(picker.value));
   document.getElementById("delete-deck").addEventListener("click", deleteDeck);
-  document.getElementById("list").querySelectorAll(".drow").forEach(el => {
+  document.querySelectorAll("#list [data-deck-view]").forEach(btn => btn.addEventListener("click", () => {
+    deckView = btn.dataset.deckView === "cards" ? "cards" : "list";
+    localStorage.setItem("vault-deck-view", deckView);
+    const shown = {
+      ...deck,
+      name: document.getElementById("dname").value,
+      description: document.getElementById("ddesc").value,
+    };
+    renderList(shown, entries, problems);
+  }));
+  document.getElementById("list").querySelectorAll(".drow, .dcard").forEach(el => {
     el.addEventListener("click", () => removeCopy(el.dataset.set, el.dataset.number, el.dataset.foil === "1"));
   });
 }
@@ -436,7 +493,7 @@ function placePreview(anchor, card) {
 }
 
 document.body.addEventListener("mouseover", (e) => {
-  const row = e.target.closest(".drow");
+  const row = e.target.closest(".drow, .dcard");
   if (row) {
     const card = lastEntries.find(en => en.set === row.dataset.set && en.number === row.dataset.number && !!en.foil === (row.dataset.foil === "1"));
     placePreview(row, card);
@@ -451,7 +508,7 @@ document.body.addEventListener("mouseover", (e) => {
 });
 
 document.addEventListener("mousemove", (e) => {
-  if (e.target.closest(".cell") || e.target.closest(".drow") || e.target.closest("#preview")) return;
+  if (e.target.closest(".cell") || e.target.closest(".drow") || e.target.closest(".dcard") || e.target.closest("#preview")) return;
   preview.style.display = "none";
 });
 
