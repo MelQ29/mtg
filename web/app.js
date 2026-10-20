@@ -102,6 +102,18 @@ function money(raw) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function copiesWorth(versions) {
+  let sum = 0;
+  let priced = 0;
+  for (const e of versions) {
+    const n = Number(e.price_usd);
+    if (e.price_usd === "" || !Number.isFinite(n)) continue;
+    sum += n * (e.qty || 0);
+    priced++;
+  }
+  return priced ? money(sum) : "—";
+}
+
 function deckWorth(entries) {
   let sum = 0;
   let priced = 0;
@@ -118,18 +130,114 @@ function overPriceCap(c) {
   return c.price_usd !== "" && Number(c.price_usd) > 8;
 }
 
-function cellHTML(c, i, mode) {
-  const pricey = mode === "deck" && overPriceCap(c);
-  const usedElsewhere = mode === "deck" && c.in_other_built > 0;
-  const locked = pricey || (usedElsewhere && (c.owned - c.in_other_built) <= 0);
-  const label = pricey ? "Over $8" : (usedElsewhere ? `In deck: ${c.other_decks}` : "");
+function freeCount(c) {
+  return (c.owned || 0) - (c.in_other_built || 0) - (c.in_this || 0);
+}
+
+function canAdd(c) {
+  return !overPriceCap(c) && freeCount(c) > 0;
+}
+
+function cardNameKey(c) {
+  const name = (c.name || "").trim().toLowerCase();
+  return name || key(c);
+}
+
+function priceRange(versions) {
+  const nums = [];
+  for (const c of versions) {
+    if (c.price_usd === "" || c.price_usd == null) continue;
+    const n = Number(c.price_usd);
+    if (Number.isFinite(n)) nums.push(n);
+  }
+  if (!nums.length) return "";
+  const fmt = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  return min === max ? fmt(min) : fmt(min) + "–" + fmt(max);
+}
+
+function chooseRep(versions, mode) {
+  if (mode !== "deck" && (priceSort === "asc" || priceSort === "desc")) {
+    const priced = versions.filter(c => c.price_usd !== "" && Number.isFinite(Number(c.price_usd)));
+    if (priced.length) {
+      priced.sort((a, b) => priceSort === "asc" ? Number(a.price_usd) - Number(b.price_usd) : Number(b.price_usd) - Number(a.price_usd));
+      return priced[0];
+    }
+  }
+  return versions.slice().sort((a, b) => {
+    if (mode === "deck") {
+      const usable = (canAdd(b) ? 1 : 0) - (canAdd(a) ? 1 : 0);
+      if (usable) return usable;
+      const inDeck = (b.in_this || 0) - (a.in_this || 0);
+      if (inDeck) return inDeck;
+    }
+    const owned = (b.owned || b.qty || 0) - (a.owned || a.qty || 0);
+    if (owned) return owned;
+    if (!!a.foil !== !!b.foil) return a.foil ? 1 : -1;
+    const set = String(a.set).localeCompare(String(b.set));
+    if (set) return set;
+    return String(a.number).localeCompare(String(b.number), undefined, { numeric: true });
+  })[0];
+}
+
+function groupCards(cards, mode) {
+  const order = [];
+  const map = new Map();
+  for (const c of cards) {
+    const id = cardNameKey(c);
+    let g = map.get(id);
+    if (!g) {
+      g = { id, name: c.name, versions: [] };
+      map.set(id, g);
+      order.push(g);
+    }
+    g.versions.push(c);
+  }
+  for (const g of order) {
+    g.owned = g.versions.reduce((n, c) => n + (c.owned || 0), 0);
+    g.inThis = g.versions.reduce((n, c) => n + (c.in_this || 0), 0);
+    g.rep = chooseRep(g.versions, mode);
+  }
+  return order;
+}
+
+function sortGroups(groups) {
+  if (priceSort !== "asc" && priceSort !== "desc") return groups;
+  const priceOf = (g) => {
+    const real = g.versions.filter(c => c.price_usd !== "" && c.price_usd != null && Number.isFinite(Number(c.price_usd))).map(c => Number(c.price_usd));
+    if (!real.length) return null;
+    return priceSort === "asc" ? Math.min(...real) : Math.max(...real);
+  };
+  const priced = [];
+  const rest = [];
+  for (const g of groups) (priceOf(g) == null ? rest : priced).push(g);
+  priced.sort((a, b) => {
+    const d = priceOf(a) - priceOf(b);
+    if (d !== 0) return priceSort === "asc" ? d : -d;
+    return String(a.name).localeCompare(String(b.name));
+  });
+  return priced.concat(rest);
+}
+
+function cellHTML(g, i, mode) {
+  const c = g.rep;
+  const many = g.versions.length > 1;
+  const locked = mode === "deck" && !g.versions.some(canAdd);
+  let label = "";
+  if (locked) label = g.versions.every(overPriceCap) ? "Over $8" : "In another deck";
   const src = imgURL(face[key(c)] || c.front_image);
   const art = src
     ? `<img alt="" src="${src}">`
     : `<div class="plate">${escapeHTML(c.name || "Unlinked printing")}</div>`;
-  const count = mode === "deck" ? c.in_this : c.owned;
-  const stat = [c.rarity, c.foil ? "foil" : "nonfoil", c.price_usd ? "$" + c.price_usd : "", mode === "deck" ? "×" + c.owned : ""].filter(Boolean).join(" · ");
-  return `<button class="cell${locked ? " locked" : ""}" type="button" data-i="${i}">
+  const count = mode === "deck" ? g.inThis : g.owned;
+  const stat = many
+    ? [g.versions.some(v => v.foil) ? "foil" : "", priceRange(g.versions), mode === "deck" ? "×" + g.owned : ""].filter(Boolean).join(" · ")
+    : [c.rarity, c.foil ? "foil" : "nonfoil", c.price_usd ? "$" + c.price_usd : "", mode === "deck" ? "×" + c.owned : ""].filter(Boolean).join(" · ");
+  const setLine = many
+    ? `<button type="button" class="arts-btn" data-i="${i}">${g.versions.length} arts</button>`
+    : `<em>${escapeHTML(c.set_name || c.set || "Choose a printing")}</em>`;
+  return `<div class="cell${locked ? " locked" : ""}" data-i="${i}">
     <div class="art${c.foil ? " is-foil" : ""}">${art}
       ${c.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
       ${mode === "deck" && count ? `<span class="badge">×${count}</span>` : ""}
@@ -137,17 +245,106 @@ function cellHTML(c, i, mode) {
     </div>
     <figcaption>
       <div class="name-row"><strong>${escapeHTML(c.name || c.set + " " + c.number)}</strong>${mode === "deck" || !count ? "" : `<span class="owned">×${count}</span>`}</div>
-      <em>${escapeHTML(c.set_name || c.set || "Choose a printing")}</em>
+      ${setLine}
       <div class="stat">${escapeHTML(stat)}</div>
     </figcaption>
-  </button>`;
+  </div>`;
 }
 
 function key(c) { return `${c.set}|${c.number}|${c.foil ? 1 : 0}`; }
 function escapeHTML(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch])); }
 
+function sortVersions(versions) {
+  return versions.slice().sort((a, b) => {
+    const owned = (b.owned || b.qty || 0) - (a.owned || a.qty || 0);
+    if (owned) return owned;
+    if (!!a.foil !== !!b.foil) return a.foil ? 1 : -1;
+    const set = String(a.set).localeCompare(String(b.set));
+    if (set) return set;
+    return String(a.number).localeCompare(String(b.number), undefined, { numeric: true });
+  });
+}
+
+function openSheet(mode, versions) {
+  if (!versions || !versions.length) return;
+  sheetMode = mode;
+  sheetName = (versions[0].name || "").toLowerCase();
+  preview.style.display = "none";
+  renderSheet(versions);
+}
+
+function closeSheet() {
+  sheetMode = "";
+  sheetName = "";
+  sheetVersions = [];
+  const host = document.getElementById("arts");
+  if (host) host.hidden = true;
+}
+
+function syncSheet() {
+  if (!sheetName) return;
+  let versions = [];
+  if (sheetMode === "remove") versions = lastEntries.filter(e => (e.name || "").toLowerCase() === sheetName);
+  else if (sheetMode === "add") versions = filteredPool(lastPool).filter(c => (c.name || "").toLowerCase() === sheetName);
+  else versions = filteredOwned(lastCards).filter(c => (c.name || "").toLowerCase() === sheetName);
+  if (!versions.length) {
+    closeSheet();
+    return;
+  }
+  renderSheet(versions);
+}
+
+function printingTitle(c) {
+  const same = (p) => p.set === c.set && String(p.number) === String(c.number) && !!p.foil === !!c.foil;
+  const known = lastPool.find(same) || lastCards.find(same);
+  const setName = c.set_name || (known && known.set_name) || String(c.set || "").toUpperCase();
+  return setName + " · " + (c.number || "");
+}
+
+function sheetTile(c, i) {
+  const src = imgURL(c.front_image);
+  const art = src ? `<img alt="" src="${src}">` : `<div class="plate">${escapeHTML(c.name || "Card")}</div>`;
+  const count = sheetMode === "remove" ? c.qty : c.owned;
+  let veil = "";
+  if (sheetMode === "add" && overPriceCap(c)) veil = "Over $8";
+  else if (sheetMode === "add" && !canAdd(c)) veil = "In another deck";
+  else if (sheetMode === "remove" && lastDeck && isCommander(lastDeck, c, lastDeck.format || "kitchen")) veil = "Commander";
+  const bits = ["×" + (count || 0), c.foil ? "foil" : "nonfoil"];
+  if (c.price_usd) bits.push("$" + c.price_usd);
+  if (sheetMode === "add" && c.in_this) bits.push("in deck ×" + c.in_this);
+  return `<button class="art-tile${veil && veil !== "Commander" ? " locked" : ""}" type="button" data-i="${i}">
+    <div class="art${c.foil ? " is-foil" : ""}">${art}
+      ${c.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
+      ${veil ? `<span class="veil">${escapeHTML(veil)}</span>` : ""}
+    </div>
+    <em>${escapeHTML(printingTitle(c))}</em>
+    <div class="stat">${escapeHTML(bits.join(" · "))}</div>
+  </button>`;
+}
+
+function renderSheet(versions) {
+  sheetVersions = sortVersions(versions);
+  const host = document.getElementById("arts");
+  document.getElementById("arts-title").textContent = sheetVersions[0].name || "Card";
+  document.getElementById("arts-note").textContent = sheetMode === "add"
+    ? "Choose the printing to add."
+    : sheetMode === "remove"
+      ? "Choose the printing to take out."
+      : sheetVersions.length + " arts";
+  document.getElementById("arts-grid").innerHTML = sheetVersions.map(sheetTile).join("");
+  host.hidden = false;
+  host.querySelectorAll(".art-tile").forEach(el => el.addEventListener("click", () => {
+    const c = sheetVersions[+el.dataset.i];
+    if (!c) return;
+    if (sheetMode === "look") placePreview(el, c);
+    else if (sheetMode === "add") addCopy(c);
+    else removeCopy(c.set, c.number, !!c.foil);
+  }));
+}
+
 function show(id) {
   preview.style.display = "none";
+  closeSheet();
   document.querySelectorAll(".view").forEach(v => v.classList.remove("on"));
   document.getElementById(id).classList.add("on");
   document.querySelectorAll(".topbar nav button").forEach(b => b.classList.toggle("on", b.dataset.view === id || (id === "editor" && b.dataset.view === "decks")));
@@ -167,6 +364,12 @@ function colorButtons(host) {
 let lastCards = [];
 let lastPool = [];
 let lastEntries = [];
+let lastDeck = null;
+let ownedGroups = [];
+let poolGroups = [];
+let sheetMode = "";
+let sheetName = "";
+let sheetVersions = [];
 
 function matchesColor(c) {
   if (selected.size === 0) return true;
@@ -179,40 +382,37 @@ function matchesRarity(c) {
   return pickedRarity.has((c.rarity || "").toLowerCase());
 }
 
-function byPrice(cards) {
-  if (priceSort !== "asc" && priceSort !== "desc") return cards;
-  const priced = [];
-  const rest = [];
-  for (const c of cards) {
-    if (c.price_usd === "" || !Number.isFinite(Number(c.price_usd))) rest.push(c);
-    else priced.push(c);
-  }
-  priced.sort((a, b) => {
-    const d = Number(a.price_usd) - Number(b.price_usd);
-    if (d !== 0) return priceSort === "asc" ? d : -d;
-    return String(a.name).localeCompare(String(b.name));
-  });
-  return priced.concat(rest);
-}
-
 function matchesFoil(c) {
   return !foilOnly || !!c.foil;
 }
 
+function filteredOwned(cards) {
+  return cards.filter(c => matchesColor(c) && matchesRarity(c) && matchesFoil(c));
+}
+
 function visibleOwned(cards) {
-  return byPrice(cards.filter(c => matchesColor(c) && matchesRarity(c) && matchesFoil(c)));
+  return sortGroups(groupCards(filteredOwned(cards), "collection"));
+}
+
+function bindArts(root, groups, mode) {
+  root.querySelectorAll(".arts-btn").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openSheet(mode === "deck" ? "add" : "look", groups[+btn.dataset.i].versions);
+  }));
 }
 
 function renderOwned(cards) {
   lastCards = cards;
   const shown = visibleOwned(cards);
+  ownedGroups = shown;
   const empty = cards.length
     ? "No cards match these filters."
     : "No cards yet. Look up a printing, or import a collection archive.";
-  document.getElementById("owned").innerHTML = shown.map((c, i) => cellHTML(c, i)).join("") || `<p class="quiet">${empty}</p>`;
-  document.getElementById("owned").querySelectorAll(".cell").forEach(el => {
-    el.addEventListener("click", () => previewCard(shown[+el.dataset.i]));
-  });
+  const host = document.getElementById("owned");
+  host.innerHTML = shown.map((g, i) => cellHTML(g, i)).join("") || `<p class="quiet">${empty}</p>`;
+  host.querySelectorAll(".cell").forEach(el => el.addEventListener("click", () => previewCard(shown[+el.dataset.i].rep)));
+  bindArts(host, shown, "collection");
+  syncSheet();
 }
 
 async function loadCards() {
@@ -275,6 +475,7 @@ async function refreshDeck() {
   syncCommanderFilter();
   renderPool(pool);
   renderList(detail.deck, detail.entries, detail.problems || []);
+  syncSheet();
 }
 
 function canBeCommander(e) {
@@ -305,17 +506,31 @@ function syncCommanderFilter() {
   document.getElementById("legendary-only").classList.toggle("on", commanderOnly);
 }
 
-function visiblePool(pool) {
+function filteredPool(pool) {
   return pool.filter(c => matchesColor(c) && matchesFoil(c) && matchesCommander(c) && matchesType(c));
+}
+
+function visiblePool(pool) {
+  return groupCards(filteredPool(pool), "deck");
 }
 
 function renderPool(pool) {
   const shown = visiblePool(pool);
-  document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i, "deck")).join("") || `<p class="quiet">No cards match.</p>`;
-  document.getElementById("pool").querySelectorAll(".cell").forEach(el => {
-    const c = shown[+el.dataset.i];
-    el.addEventListener("click", () => addCopy(c));
-  });
+  poolGroups = shown;
+  const host = document.getElementById("pool");
+  host.innerHTML = shown.map((g, i) => cellHTML(g, i, "deck")).join("") || `<p class="quiet">No cards match.</p>`;
+  host.querySelectorAll(".cell").forEach(el => el.addEventListener("click", (e) => {
+    if (e.target.closest(".arts-btn")) return;
+    const g = shown[+el.dataset.i];
+    if (g.versions.length > 1) {
+      e.stopPropagation();
+      openSheet("add", g.versions);
+      return;
+    }
+    addCopy(g.versions[0]);
+  }));
+  bindArts(host, shown, "deck");
+  syncSheet();
 }
 
 function isCommander(deck, e, format) {
@@ -336,17 +551,47 @@ function deckGroups(entries) {
   return groups;
 }
 
+function collapseEntries(entries) {
+  const map = new Map();
+  const out = [];
+  for (const e of entries) {
+    const id = cardNameKey(e);
+    let g = map.get(id);
+    if (!g) {
+      g = { name: e.name, mana_cost: e.mana_cost, versions: [], qty: 0 };
+      map.set(id, g);
+      out.push(g);
+    }
+    g.qty += e.qty;
+    g.versions.push(e);
+    if (!g.mana_cost && e.mana_cost) g.mana_cost = e.mana_cost;
+  }
+  out.sort((a, b) => {
+    const d = manaValue(a.mana_cost) - manaValue(b.mana_cost);
+    if (d !== 0) return d;
+    return String(a.name).localeCompare(String(b.name));
+  });
+  return out;
+}
+
 function deckListRows(deck, groups, format) {
   let rows = "";
   for (const name of typeSections) {
     const list = groups[name];
     if (!list.length) continue;
     rows += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div>`;
-    for (const e of list) {
-      const lead = isCommander(deck, e, format);
-      const price = money(e.price_usd) || "—";
-      rows += `<button class="drow" type="button" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
-        <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span class="tail">${e.foil ? `<i class="foil-tag">foil</i>` : ""}${pips(e.mana_cost)}</span><span class="px">${price}</span>
+    for (const g of collapseEntries(list)) {
+      const lead = g.versions.some(e => isCommander(deck, e, format));
+      const many = g.versions.length > 1;
+      const e = g.versions[0];
+      const tail = many
+        ? `${g.versions.length} arts${pips(g.mana_cost)}`
+        : `${e.foil ? `<i class="foil-tag">foil</i>` : ""}${pips(e.mana_cost)}`;
+      const attrs = many
+        ? `data-group="1" data-name="${escapeHTML(g.name)}"`
+        : `data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}"`;
+      rows += `<button class="drow" type="button" ${attrs}>
+        <span class="n">${g.qty}</span><span class="nm">${escapeHTML(g.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span class="tail">${tail}</span><span class="px">${many ? copiesWorth(g.versions) : (money(e.price_usd) || "—")}</span>
       </button>`;
     }
   }
@@ -358,16 +603,21 @@ function deckCardBoard(deck, groups, format) {
   for (const name of typeSections) {
     const list = groups[name];
     if (!list.length) continue;
-    const cards = list.map(e => {
-      const lead = isCommander(deck, e, format);
+    const cards = collapseEntries(list).map(g => {
+      const e = g.versions.slice().sort((a, b) => b.qty - a.qty).find(v => v.front_image) || g.versions[0];
+      const lead = g.versions.some(v => isCommander(deck, v, format));
+      const many = g.versions.length > 1;
       const src = imgURL(e.front_image);
       const art = src
         ? `<img alt="" src="${src}">`
         : `<div class="plate">${escapeHTML(e.name || "Card")}</div>`;
-      return `<button class="dcard${lead ? " commander" : ""}" type="button" title="Remove one copy" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
+      const attrs = many
+        ? `data-group="1" data-name="${escapeHTML(g.name)}" title="Choose which art to remove"`
+        : `title="Remove one copy" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}"`;
+      return `<button class="dcard${lead ? " commander" : ""}" type="button" ${attrs}>
         <div class="art${e.foil ? " is-foil" : ""}">${art}
           ${e.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
-          <span class="badge">×${e.qty}</span>
+          <span class="badge">×${g.qty}</span>
           ${lead ? `<span class="veil">Commander</span>` : ""}
         </div>
       </button>`;
@@ -382,6 +632,7 @@ function renderList(deck, entries, problems) {
   const format = deck.format || "kitchen";
   const target = format === "commander" ? 100 : 60;
   const life = format === "commander" ? 40 : 20;
+  lastDeck = deck;
   const groups = deckGroups(entries);
   const body = deckView === "cards" ? deckCardBoard(deck, groups, format) : deckListRows(deck, groups, format);
   const list = document.getElementById("list");
@@ -431,15 +682,26 @@ function renderList(deck, entries, problems) {
     renderList(shown, entries, problems);
   }));
   document.getElementById("list").querySelectorAll(".drow, .dcard").forEach(el => {
-    el.addEventListener("click", () => removeCopy(el.dataset.set, el.dataset.number, el.dataset.foil === "1"));
+    el.addEventListener("click", (e) => {
+      if (el.dataset.group === "1") {
+        e.stopPropagation();
+        openSheet("remove", lastEntries.filter(en => (en.name || "").toLowerCase() === (el.dataset.name || "").toLowerCase()));
+        return;
+      }
+      removeCopy(el.dataset.set, el.dataset.number, el.dataset.foil === "1");
+    });
   });
 }
 
 function commanderSelect(deck, entries) {
-  const options = entries.filter(canBeCommander).map(e => {
+  const leaders = entries.filter(canBeCommander);
+  const counts = {};
+  for (const e of leaders) counts[e.name] = (counts[e.name] || 0) + 1;
+  const options = leaders.map(e => {
     const value = `${e.set}|${e.number}|${e.foil ? 1 : 0}`;
     const on = deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
-    return `<option value="${escapeHTML(value)}"${on ? " selected" : ""}>${escapeHTML(e.name)}${e.foil ? " · foil" : ""}</option>`;
+    const extra = counts[e.name] > 1 ? ` · ${e.set} ${e.number}` : "";
+    return `<option value="${escapeHTML(value)}"${on ? " selected" : ""}>${escapeHTML(e.name)}${e.foil ? " · foil" : ""}${escapeHTML(extra)}</option>`;
   }).join("");
   return `<label class="commander-pick">Commander<select id="commander"><option value="">Choose</option>${options}</select></label>`;
 }
@@ -560,16 +822,20 @@ function placePreview(anchor, card) {
 document.body.addEventListener("mouseover", (e) => {
   const row = e.target.closest(".drow, .dcard");
   if (row) {
+    if (row.dataset.group === "1") {
+      const versions = lastEntries.filter(en => (en.name || "").toLowerCase() === (row.dataset.name || "").toLowerCase());
+      placePreview(row, versions.find(en => en.front_image) || versions[0]);
+      return;
+    }
     const card = lastEntries.find(en => en.set === row.dataset.set && en.number === row.dataset.number && !!en.foil === (row.dataset.foil === "1"));
     placePreview(row, card);
     return;
   }
   const cell = e.target.closest(".cell");
-  if (!cell) return;
-  const host = cell.parentElement.id === "pool"
-    ? visiblePool(lastPool)
-    : visibleOwned(lastCards);
-  placePreview(cell, host[+cell.dataset.i]);
+  if (!cell || cell.closest("#arts")) return;
+  const groups = cell.parentElement.id === "pool" ? poolGroups : ownedGroups;
+  const g = groups[+cell.dataset.i];
+  if (g) placePreview(cell, g.rep);
 });
 
 document.addEventListener("mousemove", (e) => {
@@ -695,6 +961,13 @@ function typeButtons(host) {
 }
 
 typeButtons(document.getElementById("dtypes"));
+document.getElementById("arts-close").addEventListener("click", () => closeSheet());
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+document.addEventListener("click", (e) => {
+  if (!sheetName) return;
+  if (e.target.closest("#arts") || e.target.closest(".arts-btn")) return;
+  closeSheet();
+});
 document.getElementById("legendary-only").addEventListener("click", () => {
   commanderOnly = !commanderOnly;
   document.getElementById("legendary-only").classList.toggle("on", commanderOnly);
