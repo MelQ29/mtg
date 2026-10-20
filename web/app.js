@@ -12,6 +12,8 @@ let deckFormat = "kitchen";
 let commanderOnly = false;
 let deckView = localStorage.getItem("vault-deck-view") === "cards" ? "cards" : "list";
 const typeSections = ["Creatures", "Planeswalkers", "Battles", "Instants", "Sorceries", "Enchantments", "Artifacts", "Lands", "Other"];
+const poolTypes = ["Creature", "Instant", "Sorcery", "Enchantment", "Artifact", "Planeswalker", "Battle", "Land"];
+let pickedTypes = new Set();
 
 function say(text) { statusEl.textContent = text || ""; }
 
@@ -288,6 +290,13 @@ function matchesCommander(c) {
   return canBeCommander(c);
 }
 
+function matchesType(c) {
+  if (pickedTypes.size === 0) return true;
+  const line = (c.type_line || "").toLowerCase();
+  for (const type of pickedTypes) if (line.includes(type.toLowerCase())) return true;
+  return false;
+}
+
 function syncCommanderFilter() {
   const host = document.getElementById("legendary-filter");
   const show = deckFormat === "commander";
@@ -297,7 +306,7 @@ function syncCommanderFilter() {
 }
 
 function visiblePool(pool) {
-  return pool.filter(c => matchesColor(c) && matchesFoil(c) && matchesCommander(c));
+  return pool.filter(c => matchesColor(c) && matchesFoil(c) && matchesCommander(c) && matchesType(c));
 }
 
 function renderPool(pool) {
@@ -675,6 +684,17 @@ function rarityButtons(host) {
 colorButtons(document.getElementById("colors"));
 colorButtons(document.getElementById("dcolors"));
 rarityButtons(document.getElementById("rarities"));
+function typeButtons(host) {
+  host.innerHTML = poolTypes.map(t => `<button type="button" data-type="${t}">${t}</button>`).join("");
+  host.querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => {
+    const t = btn.dataset.type;
+    if (pickedTypes.has(t)) pickedTypes.delete(t); else pickedTypes.add(t);
+    btn.classList.toggle("on", pickedTypes.has(t));
+    renderPool(lastPool);
+  }));
+}
+
+typeButtons(document.getElementById("dtypes"));
 document.getElementById("legendary-only").addEventListener("click", () => {
   commanderOnly = !commanderOnly;
   document.getElementById("legendary-only").classList.toggle("on", commanderOnly);

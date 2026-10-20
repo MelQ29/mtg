@@ -29,8 +29,9 @@ h1 { font-family: Literata, serif; font-weight: 560; font-size: 36px; margin: 0 
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
 .search { flex: 1; max-width: 420px; background: #0d1210; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .colors, .rarities, .price-filter { display: flex; gap: 6px; align-items: center; }
-.rarities button, .price-filter button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--dim); }
-.rarities button.on, .price-filter button.on { background: var(--brass); border-color: var(--brass); color: #121816; font-weight: 750; }
+.rarities button, .price-filter button, .type-filter button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--dim); }
+.rarities button.on, .price-filter button.on, .type-filter button.on { background: var(--brass); border-color: var(--brass); color: #121816; font-weight: 750; }
+.type-filter { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: -6px 0 14px; }
 .price-filter { color: var(--dim); }
 .pip { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,.45); display: inline-grid; place-items: center; font-size: 11px; font-weight: 750; color: #111; }
 .pip.on { outline: 2px solid var(--brass); }
