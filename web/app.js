@@ -5,6 +5,7 @@ const rarityNames = ["common", "uncommon", "rare", "mythic"];
 let selected = new Set();
 let pickedRarity = new Set();
 let priceSort = "";
+let foilOnly = false;
 let deckId = 0;
 let face = {};
 
@@ -158,8 +159,12 @@ function byPrice(cards) {
   return priced.concat(rest);
 }
 
+function matchesFoil(c) {
+  return !foilOnly || !!c.foil;
+}
+
 function visibleOwned(cards) {
-  return byPrice(cards.filter(c => matchesColor(c) && matchesRarity(c)));
+  return byPrice(cards.filter(c => matchesColor(c) && matchesRarity(c) && matchesFoil(c)));
 }
 
 function renderOwned(cards) {
@@ -242,8 +247,12 @@ function canBeCommander(e) {
   return tl.includes("creature") || tl.includes("vehicle") || tl.includes("spacecraft");
 }
 
+function visiblePool(pool) {
+  return pool.filter(c => matchesColor(c) && matchesFoil(c));
+}
+
 function renderPool(pool) {
-  const shown = pool.filter(matchesColor);
+  const shown = visiblePool(pool);
   document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i, "deck")).join("");
   document.getElementById("pool").querySelectorAll(".cell").forEach(el => {
     const c = shown[+el.dataset.i];
@@ -436,7 +445,7 @@ document.body.addEventListener("mouseover", (e) => {
   const cell = e.target.closest(".cell");
   if (!cell) return;
   const host = cell.parentElement.id === "pool"
-    ? lastPool.filter(matchesColor)
+    ? visiblePool(lastPool)
     : visibleOwned(lastCards);
   placePreview(cell, host[+cell.dataset.i]);
 });
@@ -553,6 +562,12 @@ function rarityButtons(host) {
 colorButtons(document.getElementById("colors"));
 colorButtons(document.getElementById("dcolors"));
 rarityButtons(document.getElementById("rarities"));
+document.querySelectorAll(".foil-only").forEach(btn => btn.addEventListener("click", () => {
+  foilOnly = !foilOnly;
+  document.querySelectorAll(".foil-only").forEach(b => b.classList.toggle("on", foilOnly));
+  renderOwned(lastCards);
+  renderPool(lastPool);
+}));
 document.querySelectorAll("#price-sort button").forEach(btn => btn.addEventListener("click", () => {
   const next = btn.dataset.sort;
   priceSort = priceSort === next ? "" : next;
