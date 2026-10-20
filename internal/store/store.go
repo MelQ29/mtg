@@ -223,16 +223,16 @@ func (s *Store) OwnedCount() (int, error) {
 	return int(n.Int64), nil
 }
 
-// List returns owned printings. q matches name, set name, set code, or collector number.
+// List returns owned printings. q matches name, rules text, set name, set code, or collector number.
 func (s *Store) List(q string) ([]Copy, error) {
 	q = strings.TrimSpace(q)
 	like := "%" + q + "%"
 	rows, err := s.db.Query(`
 		SELECT set_code, collector_number, foil, qty, name, set_name, rarity, mana_cost, type_line, colors, price_usd, price_on, front_image, back_image, oracle_text
 		FROM copies
-		WHERE qty > 0 AND (? = '' OR name LIKE ? OR set_name LIKE ? OR set_code LIKE ? OR collector_number LIKE ? OR (set_code || ' ' || collector_number) LIKE ?)
+		WHERE qty > 0 AND (? = '' OR name LIKE ? OR oracle_text LIKE ? OR set_name LIKE ? OR set_code LIKE ? OR collector_number LIKE ? OR (set_code || ' ' || collector_number) LIKE ?)
 		ORDER BY name COLLATE NOCASE, set_code, collector_number`,
-		q, like, like, like, like, like)
+		q, like, like, like, like, like, like)
 	if err != nil {
 		return nil, err
 	}

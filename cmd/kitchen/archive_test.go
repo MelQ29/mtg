@@ -28,6 +28,13 @@ func TestImportArchiveLoadsOnce(t *testing.T) {
 	if err := src.SetMeta(store.Copy{SetCode: "ecl", Number: "1", Name: "Island", FrontImage: "ecl/1/front.jpg"}); err != nil {
 		t.Fatal(err)
 	}
+	deckID, err := src.CreateDeck("Соня", "", "built")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.SetEntry(deckID, "ecl", "1", false, 1); err != nil {
+		t.Fatal(err)
+	}
 	blob, err := backup.Export(src, img)
 	src.Close()
 	if err != nil {
@@ -55,6 +62,14 @@ func TestImportArchiveLoadsOnce(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("imported count %d %v", n, err)
 	}
+	decks, err := dst.ListDecks()
+	if err != nil || len(decks) != 1 || decks[0].Name != "Соня" {
+		t.Fatalf("imported decks %+v %v", decks, err)
+	}
+	decks[0].Name = "Edited"
+	if err := dst.UpdateDeck(decks[0]); err != nil {
+		t.Fatal(err)
+	}
 	if err := dst.AddCopy("ecl", "1", false, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +79,10 @@ func TestImportArchiveLoadsOnce(t *testing.T) {
 	n, err = dst.OwnedCount()
 	if err != nil || n != 3 {
 		t.Fatalf("second launch should keep edits, count %d %v", n, err)
+	}
+	decks, err = dst.ListDecks()
+	if err != nil || len(decks) != 1 || decks[0].Name != "Edited" {
+		t.Fatalf("second launch reimported decks %+v %v", decks, err)
 	}
 	if err := importArchive(dst, images, zipPath, true); err != nil {
 		t.Fatal(err)

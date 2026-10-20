@@ -35,7 +35,7 @@
 <section class="view on pad" id="collection">
   <h1>Collection</h1>
   <div class="toolbar">
-    <input class="search" id="q" placeholder="Name, set, or ecl 317">
+    <input class="search" id="q" placeholder="Name, rules text, set, or ecl 317">
     <button type="button" class="ghost" id="lookup">Look up</button>
     <div class="colors" id="colors"></div>
     <div class="rarities" id="rarities"></div>
@@ -58,9 +58,10 @@
     <div class="picker">
       <div class="toolbar">
         <button type="button" class="ghost" id="back">Decks</button>
-        <input class="search" id="dq" placeholder="Search the collection">
+        <input class="search" id="dq" placeholder="Name or rules text">
         <div class="colors" id="dcolors"></div>
         <div class="rarities"><button type="button" class="foil-only">Foil</button></div>
+        <div class="rarities" id="legendary-filter" hidden><button type="button" id="legendary-only">Legendary</button></div>
       </div>
       <div class="cards" id="pool"></div>
     </div>

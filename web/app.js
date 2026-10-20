@@ -8,7 +8,10 @@ let priceSort = "";
 let foilOnly = false;
 let deckId = 0;
 let face = {};
+let deckFormat = "kitchen";
+let commanderOnly = false;
 let deckView = localStorage.getItem("vault-deck-view") === "cards" ? "cards" : "list";
+const typeSections = ["Creatures", "Planeswalkers", "Battles", "Instants", "Sorceries", "Enchantments", "Artifacts", "Lands", "Other"];
 
 function say(text) { statusEl.textContent = text || ""; }
 
@@ -57,9 +60,38 @@ function pips(cost) {
 
 function sectionOf(typeLine) {
   const t = (typeLine || "").toLowerCase();
-  if (t.includes("land")) return "Lands";
   if (t.includes("creature")) return "Creatures";
-  return "Spells";
+  if (t.includes("planeswalker")) return "Planeswalkers";
+  if (t.includes("battle")) return "Battles";
+  if (t.includes("instant")) return "Instants";
+  if (t.includes("sorcery")) return "Sorceries";
+  if (t.includes("enchantment")) return "Enchantments";
+  if (t.includes("artifact")) return "Artifacts";
+  if (t.includes("land")) return "Lands";
+  return "Other";
+}
+
+function manaValue(cost) {
+  const faceCost = String(cost || "").split("//")[0];
+  let total = 0;
+  for (const raw of faceCost.matchAll(/\{([^}]+)\}/g)) {
+    const sym = raw[1].toUpperCase();
+    if (/^\d+$/.test(sym)) total += Number(sym);
+    else if (sym !== "X" && sym !== "Y" && sym !== "Z") total += 1;
+  }
+  return total;
+}
+
+// Colored pips only. Generic, X, snow, and colorless are not a color,
+// so a card matches when every colored pip is one of the selected colors.
+function manaColors(cost) {
+  const found = new Set();
+  for (const raw of String(cost || "").matchAll(/\{([^}]+)\}/g)) {
+    for (const part of raw[1].toUpperCase().split("/")) {
+      if (part.length === 1 && "WUBRG".includes(part)) found.add(part);
+    }
+  }
+  return found;
 }
 
 function money(raw) {
@@ -94,16 +126,17 @@ function cellHTML(c, i, mode) {
     ? `<img alt="" src="${src}">`
     : `<div class="plate">${escapeHTML(c.name || "Unlinked printing")}</div>`;
   const count = mode === "deck" ? c.in_this : c.owned;
+  const stat = [c.rarity, c.foil ? "foil" : "nonfoil", c.price_usd ? "$" + c.price_usd : "", mode === "deck" ? "×" + c.owned : ""].filter(Boolean).join(" · ");
   return `<button class="cell${locked ? " locked" : ""}" type="button" data-i="${i}">
     <div class="art${c.foil ? " is-foil" : ""}">${art}
       ${c.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
-      ${count ? `<span class="badge">×${count}</span>` : ""}
+      ${mode === "deck" && count ? `<span class="badge">×${count}</span>` : ""}
       ${label ? `<span class="veil">${escapeHTML(label)}</span>` : ""}
     </div>
     <figcaption>
-      <strong>${escapeHTML(c.name || c.set + " " + c.number)}</strong>
+      <div class="name-row"><strong>${escapeHTML(c.name || c.set + " " + c.number)}</strong>${mode === "deck" || !count ? "" : `<span class="owned">×${count}</span>`}</div>
       <em>${escapeHTML(c.set_name || c.set || "Choose a printing")}</em>
-      <div class="stat">${escapeHTML([c.rarity, c.foil ? "foil" : "nonfoil", c.price_usd ? "$" + c.price_usd : "", "×" + c.owned].filter(Boolean).join(" · "))}</div>
+      <div class="stat">${escapeHTML(stat)}</div>
     </figcaption>
   </button>`;
 }
@@ -135,8 +168,8 @@ let lastEntries = [];
 
 function matchesColor(c) {
   if (selected.size === 0) return true;
-  for (const col of selected) if ((c.colors || "").includes(col)) return true;
-  return false;
+  for (const col of manaColors(c.mana_cost)) if (!selected.has(col)) return false;
+  return true;
 }
 
 function matchesRarity(c) {
@@ -236,6 +269,8 @@ async function refreshDeck() {
   ]);
   lastEntries = detail.entries;
   lastPool = pool;
+  deckFormat = detail.deck.format || "kitchen";
+  syncCommanderFilter();
   renderPool(pool);
   renderList(detail.deck, detail.entries, detail.problems || []);
 }
@@ -248,13 +283,26 @@ function canBeCommander(e) {
   return tl.includes("creature") || tl.includes("vehicle") || tl.includes("spacecraft");
 }
 
+function matchesCommander(c) {
+  if (!commanderOnly || deckFormat !== "commander") return true;
+  return canBeCommander(c);
+}
+
+function syncCommanderFilter() {
+  const host = document.getElementById("legendary-filter");
+  const show = deckFormat === "commander";
+  host.hidden = !show;
+  if (!show) commanderOnly = false;
+  document.getElementById("legendary-only").classList.toggle("on", commanderOnly);
+}
+
 function visiblePool(pool) {
-  return pool.filter(c => matchesColor(c) && matchesFoil(c));
+  return pool.filter(c => matchesColor(c) && matchesFoil(c) && matchesCommander(c));
 }
 
 function renderPool(pool) {
   const shown = visiblePool(pool);
-  document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i, "deck")).join("");
+  document.getElementById("pool").innerHTML = shown.map((c, i) => cellHTML(c, i, "deck")).join("") || `<p class="quiet">No cards match.</p>`;
   document.getElementById("pool").querySelectorAll(".cell").forEach(el => {
     const c = shown[+el.dataset.i];
     el.addEventListener("click", () => addCopy(c));
@@ -266,14 +314,22 @@ function isCommander(deck, e, format) {
 }
 
 function deckGroups(entries) {
-  const groups = { Creatures: [], Spells: [], Lands: [] };
+  const groups = {};
+  for (const name of typeSections) groups[name] = [];
   for (const e of entries) groups[sectionOf(e.type_line)].push(e);
+  for (const name of typeSections) {
+    groups[name].sort((a, b) => {
+      const d = manaValue(a.mana_cost) - manaValue(b.mana_cost);
+      if (d !== 0) return d;
+      return String(a.name).localeCompare(String(b.name));
+    });
+  }
   return groups;
 }
 
 function deckListRows(deck, groups, format) {
   let rows = "";
-  for (const name of ["Creatures", "Spells", "Lands"]) {
+  for (const name of typeSections) {
     const list = groups[name];
     if (!list.length) continue;
     rows += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div>`;
@@ -290,7 +346,7 @@ function deckListRows(deck, groups, format) {
 
 function deckCardBoard(deck, groups, format) {
   let board = "";
-  for (const name of ["Creatures", "Spells", "Lands"]) {
+  for (const name of typeSections) {
     const list = groups[name];
     if (!list.length) continue;
     const cards = list.map(e => {
@@ -619,6 +675,11 @@ function rarityButtons(host) {
 colorButtons(document.getElementById("colors"));
 colorButtons(document.getElementById("dcolors"));
 rarityButtons(document.getElementById("rarities"));
+document.getElementById("legendary-only").addEventListener("click", () => {
+  commanderOnly = !commanderOnly;
+  document.getElementById("legendary-only").classList.toggle("on", commanderOnly);
+  renderPool(lastPool);
+});
 document.querySelectorAll(".foil-only").forEach(btn => btn.addEventListener("click", () => {
   foilOnly = !foilOnly;
   document.querySelectorAll(".foil-only").forEach(b => b.classList.toggle("on", foilOnly));

@@ -172,6 +172,35 @@ func TestDeckCoverUsesTheNamesake(t *testing.T) {
 	}
 }
 
+func TestListMatchesRulesText(t *testing.T) {
+	s := openTemp(t)
+	add := func(number, name, oracle string) {
+		t.Helper()
+		if err := s.AddCopy("ecl", number, false, 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetMeta(Copy{SetCode: "ecl", Number: number, Name: name, OracleText: oracle}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("1", "Overkill", "Destroy target creature.")
+	add("2", "Shock", "Shock deals 2 damage to any target.")
+	got, err := s.List("destroy target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Overkill" {
+		t.Fatalf("rules search %+v", got)
+	}
+	byName, err := s.List("shock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != 1 || byName[0].Name != "Shock" {
+		t.Fatalf("name search %+v", byName)
+	}
+}
+
 func TestAddCopyIncreasesSamePrinting(t *testing.T) {
 	s := openTemp(t)
 	if err := s.AddCopy("ecl", "317", false, 1); err != nil {
