@@ -424,7 +424,7 @@ func tooExpensive(price string) bool {
 		return false
 	}
 	n, err := strconv.ParseFloat(price, 64)
-	return err == nil && n > 6
+	return err == nil && n > 8
 }
 
 func checkAdd(s *store.Store, deck store.Deck, set, number string, foil bool, qty int) error {
@@ -436,7 +436,7 @@ func checkAdd(s *store.Store, deck store.Deck, set, number string, foil bool, qt
 		return fmt.Errorf("card is not in the collection")
 	}
 	if tooExpensive(card.PriceUSD) {
-		return fmt.Errorf("cards over $6 stay in the collection")
+		return fmt.Errorf("cards over $8 stay in the collection")
 	}
 	entries, err := s.Entries(deck.ID)
 	if err != nil {

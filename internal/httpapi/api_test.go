@@ -139,6 +139,36 @@ func TestCommanderRejectsASecondCopyAndAPrice(t *testing.T) {
 	}
 }
 
+func TestEightDollarsCanJoinADeck(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.AddCopy("xln", "59", false, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "xln", Number: "59", Name: "Herald of Secret Streams", PriceUSD: "8.00"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddCopy("fic", "197", false, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMeta(store.Copy{SetCode: "fic", Number: "197", Name: "Summon: Valefor", PriceUSD: "8.01"}); err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(s, fakeCards{}, t.TempDir())
+	if postJSON(t, h, "/api/decks", `{"name":"Simic","description":"","status":"built"}`).Code != 200 {
+		t.Fatal("create")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"xln","number":"59","foil":false,"qty":1}`).Code != 200 {
+		t.Fatal("eight dollars")
+	}
+	if postJSON(t, h, "/api/decks/1/entries", `{"set":"fic","number":"197","foil":false,"qty":1}`).Code != 409 {
+		t.Fatal("over eight dollars")
+	}
+}
+
 func TestCollectionShowsABuiltDeck(t *testing.T) {
 	h := handlerWithOneHexing(t)
 	if postJSON(t, h, "/api/decks", `{"name":"White-Black","description":"","status":"built"}`).Code != 200 {

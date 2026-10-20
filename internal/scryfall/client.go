@@ -31,6 +31,9 @@ type Printing struct {
 	Faces        []Face `json:"faces"`
 	PriceNonfoil string `json:"price_nonfoil"`
 	PriceFoil    string `json:"price_foil"`
+	// MeldURI is the combined back of a meld card. Scryfall keeps that
+	// picture on a separate object, not in this card's faces.
+	MeldURI string `json:"meld_uri,omitempty"`
 }
 
 type rawCard struct {
@@ -46,6 +49,14 @@ type rawCard struct {
 	ImageURIs       *rawImages `json:"image_uris"`
 	Prices          rawPrices  `json:"prices"`
 	CardFaces       []rawFace  `json:"card_faces"`
+	Layout          string     `json:"layout"`
+	AllParts        []rawPart  `json:"all_parts"`
+}
+
+type rawPart struct {
+	Name      string `json:"name"`
+	Component string `json:"component"`
+	URI       string `json:"uri"`
 }
 
 type rawFace struct {
@@ -90,6 +101,7 @@ func ParseCard(body []byte) (Printing, error) {
 		Colors:       strings.Join(raw.ColorIdentity, ""),
 		PriceNonfoil: deref(raw.Prices.USD),
 		PriceFoil:    deref(raw.Prices.USDFoil),
+		MeldURI:      meldResultURI(raw),
 	}
 	if raw.ImageURIs != nil && raw.ImageURIs.Normal != "" {
 		p.Faces = []Face{{Name: raw.Name, ImageURL: raw.ImageURIs.Normal}}
@@ -125,6 +137,20 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// meldResultURI is the Scryfall object for the card these two halves become.
+// The result card lists itself, so a matching name means there is no other back.
+func meldResultURI(raw rawCard) string {
+	if raw.Layout != "meld" {
+		return ""
+	}
+	for _, part := range raw.AllParts {
+		if part.Component == "meld_result" && part.URI != "" && part.Name != raw.Name {
+			return part.URI
+		}
+	}
+	return ""
 }
 
 // Client calls the Scryfall API with a polite pause between requests.
@@ -165,9 +191,13 @@ func (c *Client) Named(name string) (Printing, error) {
 		if FoldName(p.Name) != FoldName(name) {
 			return Printing{}, fmt.Errorf("scryfall fuzzy %q is %q", name, p.Name)
 		}
-		return p, nil
+		return c.attachMeld(p)
 	}
-	return ParseCard(body)
+	p, err := ParseCard(body)
+	if err != nil {
+		return Printing{}, err
+	}
+	return c.attachMeld(p)
 }
 
 // FoldName compares card names without case or punctuation.
@@ -194,7 +224,31 @@ func (c *Client) Fetch(set, number string) (Printing, error) {
 	if err != nil {
 		return Printing{}, err
 	}
-	return ParseCard(body)
+	p, err := ParseCard(body)
+	if err != nil {
+		return Printing{}, err
+	}
+	return c.attachMeld(p)
+}
+
+// attachMeld adds the combined meld card as a second face.
+func (c *Client) attachMeld(p Printing) (Printing, error) {
+	if p.MeldURI == "" || len(p.Faces) == 0 {
+		return p, nil
+	}
+	body, err := c.get(p.MeldURI)
+	if err != nil {
+		return Printing{}, err
+	}
+	back, err := ParseCard(body)
+	if err != nil {
+		return Printing{}, err
+	}
+	if len(back.Faces) == 0 || back.Faces[0].ImageURL == "" || back.Faces[0].ImageURL == p.Faces[0].ImageURL {
+		return p, nil
+	}
+	p.Faces = append(p.Faces, Face{Name: back.Name, ImageURL: back.Faces[0].ImageURL})
+	return p, nil
 }
 
 // SearchPrintings lists printings for a name. An exact name is tried first.

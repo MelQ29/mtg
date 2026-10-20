@@ -64,6 +64,7 @@ type Entry struct {
 	Oracle     string `json:"oracle_text"`
 	FrontImage string `json:"front_image"`
 	BackImage  string `json:"back_image"`
+	PriceUSD   string `json:"price_usd"`
 }
 
 // Store is the SQLite collection.
@@ -329,9 +330,18 @@ func (s *Store) ListDecks() ([]Deck, error) {
 				JOIN copies c ON c.set_code = e2.set_code AND c.collector_number = e2.collector_number AND c.foil = e2.foil
 				WHERE e2.deck_id = d.id AND c.front_image != ''
 				ORDER BY CASE
-					WHEN c.type_line LIKE '%Creature%' THEN 0
-					WHEN c.type_line LIKE '%Land%' THEN 2
-					ELSE 1
+					WHEN c.name = CASE
+						WHEN instr(d.name, ' —') > 0 THEN trim(substr(d.name, 1, instr(d.name, ' —') - 1))
+						ELSE d.name
+					END
+					OR c.name LIKE CASE
+						WHEN instr(d.name, ' —') > 0 THEN trim(substr(d.name, 1, instr(d.name, ' —') - 1))
+						ELSE d.name
+					END || ',%'
+					THEN 0
+					WHEN c.type_line LIKE '%Creature%' THEN 1
+					WHEN c.type_line LIKE '%Land%' THEN 3
+					ELSE 2
 				END, c.name COLLATE NOCASE
 				LIMIT 1
 			), '')
@@ -357,7 +367,7 @@ func (s *Store) ListDecks() ([]Deck, error) {
 // Entries lists cards in a deck, joined to the collection for name and mana.
 func (s *Store) Entries(deckID int) ([]Entry, error) {
 	rows, err := s.db.Query(`
-		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, ''), COALESCE(c.colors, ''), COALESCE(c.oracle_text, ''), COALESCE(c.front_image, ''), COALESCE(c.back_image, '')
+		SELECT e.set_code, e.collector_number, e.foil, e.qty, COALESCE(c.name, ''), COALESCE(c.mana_cost, ''), COALESCE(c.type_line, ''), COALESCE(c.colors, ''), COALESCE(c.oracle_text, ''), COALESCE(c.front_image, ''), COALESCE(c.back_image, ''), COALESCE(c.price_usd, '')
 		FROM entries e
 		LEFT JOIN copies c ON c.set_code=e.set_code AND c.collector_number=e.collector_number AND c.foil=e.foil
 		WHERE e.deck_id=?
@@ -370,7 +380,7 @@ func (s *Store) Entries(deckID int) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var foil int
-		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine, &e.Colors, &e.Oracle, &e.FrontImage, &e.BackImage); err != nil {
+		if err := rows.Scan(&e.SetCode, &e.Number, &foil, &e.Qty, &e.Name, &e.ManaCost, &e.TypeLine, &e.Colors, &e.Oracle, &e.FrontImage, &e.BackImage, &e.PriceUSD); err != nil {
 			return nil, err
 		}
 		e.Foil = foil == 1

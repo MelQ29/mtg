@@ -60,22 +60,41 @@ function sectionOf(typeLine) {
   return "Spells";
 }
 
-function overSix(c) {
-  return c.price_usd !== "" && Number(c.price_usd) > 6;
+function money(raw) {
+  const n = Number(raw);
+  if (raw === "" || raw == null || !Number.isFinite(n)) return "";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function deckWorth(entries) {
+  let sum = 0;
+  let priced = 0;
+  for (const e of entries) {
+    const n = Number(e.price_usd);
+    if (e.price_usd === "" || !Number.isFinite(n)) continue;
+    sum += n * e.qty;
+    priced++;
+  }
+  return priced ? money(sum) : "—";
+}
+
+function overPriceCap(c) {
+  return c.price_usd !== "" && Number(c.price_usd) > 8;
 }
 
 function cellHTML(c, i, mode) {
-  const pricey = mode === "deck" && overSix(c);
+  const pricey = mode === "deck" && overPriceCap(c);
   const usedElsewhere = mode === "deck" && c.in_other_built > 0;
   const locked = pricey || (usedElsewhere && (c.owned - c.in_other_built) <= 0);
-  const label = pricey ? "Over $6" : (usedElsewhere ? `In deck: ${c.other_decks}` : "");
+  const label = pricey ? "Over $8" : (usedElsewhere ? `In deck: ${c.other_decks}` : "");
   const src = imgURL(face[key(c)] || c.front_image);
   const art = src
     ? `<img alt="" src="${src}">`
     : `<div class="plate">${escapeHTML(c.name || "Unlinked printing")}</div>`;
   const count = mode === "deck" ? c.in_this : c.owned;
   return `<button class="cell${locked ? " locked" : ""}" type="button" data-i="${i}">
-    <div class="art">${art}
+    <div class="art${c.foil ? " is-foil" : ""}">${art}
+      ${c.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
       ${count ? `<span class="badge">×${count}</span>` : ""}
       ${label ? `<span class="veil">${escapeHTML(label)}</span>` : ""}
     </div>
@@ -246,8 +265,9 @@ function renderList(deck, entries, problems) {
     rows += `<div class="sec">${name} ${list.reduce((n, e) => n + e.qty, 0)}</div>`;
     for (const e of list) {
       const lead = format === "commander" && deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
+      const price = money(e.price_usd) || "—";
       rows += `<button class="drow" type="button" data-set="${escapeHTML(e.set)}" data-number="${escapeHTML(e.number)}" data-foil="${e.foil ? 1 : 0}">
-        <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span>${pips(e.mana_cost)}</span>
+        <span class="n">${e.qty}</span><span class="nm">${escapeHTML(e.name || e.set + " " + e.number)}${lead ? " · Commander" : ""}</span><span class="tail">${e.foil ? `<i class="foil-tag">foil</i>` : ""}${pips(e.mana_cost)}</span><span class="px">${price}</span>
       </button>`;
     }
   }
@@ -266,7 +286,10 @@ function renderList(deck, entries, problems) {
     <p class="life">${life} life</p>
     ${format === "commander" ? commanderSelect(deck, entries) : ""}
     ${(problems || []).map(p => `<p class="problems">${escapeHTML(p)}</p>`).join("")}
-    <button type="button" class="ghost" id="delete-deck">Delete deck</button>
+    <div class="deck-foot">
+      <button type="button" class="ghost" id="delete-deck">Delete deck</button>
+      <div class="deck-worth" title="Value of the copies in this deck">${deckWorth(entries)}</div>
+    </div>
     ${rows}`;
   document.getElementById("dname").addEventListener("change", saveMeta);
   document.getElementById("ddesc").addEventListener("change", saveMeta);
@@ -285,7 +308,7 @@ function commanderSelect(deck, entries) {
   const options = entries.filter(canBeCommander).map(e => {
     const value = `${e.set}|${e.number}|${e.foil ? 1 : 0}`;
     const on = deck.commander_set === e.set && deck.commander_number === e.number && !!deck.commander_foil === !!e.foil;
-    return `<option value="${escapeHTML(value)}"${on ? " selected" : ""}>${escapeHTML(e.name)}</option>`;
+    return `<option value="${escapeHTML(value)}"${on ? " selected" : ""}>${escapeHTML(e.name)}${e.foil ? " · foil" : ""}</option>`;
   }).join("");
   return `<label class="commander-pick">Commander<select id="commander"><option value="">Choose</option>${options}</select></label>`;
 }
@@ -342,8 +365,8 @@ async function saveStatus(status) {
 }
 
 async function addCopy(c) {
-  if (overSix(c)) {
-    say("Cards over $6 stay in the collection.");
+  if (overPriceCap(c)) {
+    say("Cards over $8 stay in the collection.");
     return;
   }
   const free = c.owned - c.in_other_built - c.in_this;
@@ -378,7 +401,10 @@ function previewCard(c) {
   const src = imgURL(face[key(c)] || c.front_image);
   if (!src) return;
   preview.style.display = "block";
-  preview.innerHTML = `<img id="pv" alt="" src="${src}" data-front="${imgURL(c.front_image)}" data-back="${imgURL(c.back_image)}">` +
+  preview.innerHTML = `<div class="pv-card${c.foil ? " is-foil" : ""}">
+      <img id="pv" alt="" src="${src}" data-front="${imgURL(c.front_image)}" data-back="${imgURL(c.back_image)}">
+      ${c.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}
+    </div>` +
     (c.back_image ? `<button type="button" id="flip">Flip</button>` : "");
 }
 
@@ -419,6 +445,34 @@ document.addEventListener("mousemove", (e) => {
   if (e.target.closest(".cell") || e.target.closest(".drow") || e.target.closest("#preview")) return;
   preview.style.display = "none";
 });
+
+let foilHostEl = null;
+let foilFrame = 0;
+let foilPoint = null;
+
+function paintFoil() {
+  foilFrame = 0;
+  const e = foilPoint;
+  if (!e) return;
+  const host = e.target instanceof Element ? e.target.closest(".is-foil") : null;
+  if (foilHostEl && foilHostEl !== host) {
+    foilHostEl.style.removeProperty("--px");
+    foilHostEl.style.removeProperty("--py");
+  }
+  foilHostEl = host;
+  if (!host) return;
+  const r = host.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return;
+  const x = Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100));
+  const y = Math.min(100, Math.max(0, ((e.clientY - r.top) / r.height) * 100));
+  host.style.setProperty("--px", x.toFixed(1));
+  host.style.setProperty("--py", y.toFixed(1));
+}
+
+document.addEventListener("pointermove", (e) => {
+  foilPoint = e;
+  if (!foilFrame) foilFrame = requestAnimationFrame(paintFoil);
+}, { passive: true });
 
 preview.addEventListener("click", (e) => {
   if (e.target.id !== "flip") return;
