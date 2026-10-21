@@ -1,4 +1,5 @@
 // Primers match a deck by name. No entry means the How to play page stays empty.
+// How to write the next one: AGENTS.md, section "How to play".
 // level.scale is "Bracket" for Commander and "Kitchen" for 60-card.
 // Kitchen is not a Standard tier: Standard ranks tournament decks Tier 1–3.
 const deckGuides = {
