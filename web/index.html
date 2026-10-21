@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,560&family=Manrope:wght@460;600;750&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mana-font@1.18.0/css/mana.min.css">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -70,6 +71,14 @@
   </div>
 </section>
 <div class="preview" id="preview"></div>
+<div id="primer" class="primer" hidden>
+  <div class="primer-top">
+    <strong id="primer-title">How to play</strong>
+    <span id="primer-kicker"></span>
+    <button type="button" class="ghost" id="primer-close">Close</button>
+  </div>
+  <div id="primer-page" class="primer-page"></div>
+</div>
 <div id="arts" class="arts" hidden>
   <div class="arts-bar">
     <strong id="arts-title"></strong>
@@ -78,6 +87,7 @@
   </div>
   <div id="arts-grid" class="arts-grid"></div>
 </div>
+<script src="/guides.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

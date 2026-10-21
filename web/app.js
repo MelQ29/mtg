@@ -344,6 +344,7 @@ function renderSheet(versions) {
 
 function show(id) {
   preview.style.display = "none";
+  document.getElementById("primer").hidden = true;
   closeSheet();
   document.querySelectorAll(".view").forEach(v => v.classList.remove("on"));
   document.getElementById(id).classList.add("on");
@@ -425,7 +426,7 @@ function deckTile(d) {
   const name = d.name || "Untitled";
   return `<div class="box" data-id="${d.id}">
       ${d.cover ? `<img alt="" src="${imgURL(d.cover)}">` : `<div class="cover"></div>`}
-      <div class="boxbody"><div><strong>${escapeHTML(name)}</strong><span>${escapeHTML(d.status)} · ${d.cards} cards</span></div><button type="button" class="trash" data-id="${d.id}" data-name="${escapeHTML(name)}">Delete</button></div>
+      <div class="boxbody"><div><strong>${escapeHTML(name)}</strong><span>${escapeHTML(d.status)} · ${d.cards} cards${levelLabel(levelOf(name)) ? " · " + escapeHTML(levelLabel(levelOf(name))) : ""}</span></div><button type="button" class="trash" data-id="${d.id}" data-name="${escapeHTML(name)}">Delete</button></div>
     </div>`;
 }
 
@@ -641,6 +642,12 @@ function renderList(deck, entries, problems) {
   list.innerHTML = `
     <input class="dname" id="dname" value="${escapeHTML(deck.name)}" aria-label="Deck name">
     <input class="ddesc" id="ddesc" value="${escapeHTML(deck.description)}" aria-label="Description">
+    <div class="deck-menu">
+      <button type="button" class="ghost" id="deck-menu" aria-expanded="false" aria-controls="deck-pop">Menu</button>
+      <div id="deck-pop" class="deck-pop" hidden>
+        <button type="button" id="how-to-play" class="${findGuide(deck.name) ? "has-primer" : ""}">How to play</button>
+      </div>
+    </div>
     <div class="modes">
       <button type="button" id="mode-draft" class="${deck.status === "draft" ? "on" : ""}">Draft</button>
       <button type="button" id="mode-built" class="${deck.status === "built" ? "on" : ""}">Built</button>
@@ -651,6 +658,7 @@ function renderList(deck, entries, problems) {
     </div>
     <div class="count">${total}<small> / ${target}</small></div>
     <p class="life">${life} life</p>
+    ${levelMarkup(deck)}
     <div class="modes">
       <button type="button" data-deck-view="list" class="${deckView === "list" ? "on" : ""}">List</button>
       <button type="button" data-deck-view="cards" class="${deckView === "cards" ? "on" : ""}">Cards</button>
@@ -671,6 +679,20 @@ function renderList(deck, entries, problems) {
   const picker = document.getElementById("commander");
   if (picker) picker.addEventListener("change", () => saveCommander(picker.value));
   document.getElementById("delete-deck").addEventListener("click", deleteDeck);
+  document.getElementById("deck-menu").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pop = document.getElementById("deck-pop");
+    const open = pop.hidden;
+    pop.hidden = !open;
+    e.currentTarget.setAttribute("aria-expanded", String(open));
+  });
+  document.getElementById("how-to-play").addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("deck-pop").hidden = true;
+    document.getElementById("deck-menu").setAttribute("aria-expanded", "false");
+    const name = document.getElementById("dname").value;
+    openPrimer({ ...deck, name }, entries);
+  });
   document.querySelectorAll("#list [data-deck-view]").forEach(btn => btn.addEventListener("click", () => {
     deckView = btn.dataset.deckView === "cards" ? "cards" : "list";
     localStorage.setItem("vault-deck-view", deckView);
@@ -691,6 +713,169 @@ function renderList(deck, entries, problems) {
       removeCopy(el.dataset.set, el.dataset.number, el.dataset.foil === "1");
     });
   });
+}
+
+function findGuide(name) {
+  const guides = typeof deckGuides === "undefined" ? null : deckGuides;
+  if (!guides) return null;
+  const want = String(name || "").trim().toLowerCase();
+  for (const key of Object.keys(guides)) {
+    if (key.trim().toLowerCase() === want) return guides[key];
+  }
+  return null;
+}
+
+function primerPrinting(entries, name) {
+  const matches = entries.filter(e => (e.name || "").toLowerCase() === String(name).toLowerCase());
+  if (!matches.length) return null;
+  const shown = matches.find(e => e.foil && e.front_image) || matches.find(e => e.front_image) || matches[0];
+  return {
+    shown,
+    qty: matches.reduce((n, e) => n + (e.qty || 0), 0),
+    foilQty: matches.filter(e => e.foil).reduce((n, e) => n + (e.qty || 0), 0),
+  };
+}
+
+function manaHTML(raw) {
+  const safe = escapeHTML(raw);
+  return safe.replace(/\{([^}]+)\}/g, (_, sym) => {
+    const key = sym.toUpperCase();
+    let cls = "ms-c";
+    if (/^\d+$/.test(key)) cls = "ms-" + key;
+    else if (key === "W") cls = "ms-w";
+    else if (key === "U") cls = "ms-u";
+    else if (key === "B") cls = "ms-b";
+    else if (key === "R") cls = "ms-r";
+    else if (key === "G") cls = "ms-g";
+    else if (key === "C") cls = "ms-c";
+    else if (key === "T") cls = "ms-tap";
+    else if (key === "X") cls = "ms-x";
+    else if (key.includes("/")) cls = "ms-" + key.replace(/\//g, "").toLowerCase();
+    return `<i class="ms ms-cost ${cls}" aria-label="${escapeHTML(key)}"></i>`;
+  });
+}
+
+function levelOf(name) {
+  const guide = findGuide(name);
+  return guide && guide.level ? guide.level : null;
+}
+
+function levelLabel(level) {
+  if (!level) return "";
+  return [level.scale, level.rank, level.name].filter(Boolean).join(" · ");
+}
+
+function levelMarkup(deck) {
+  const level = levelOf(deck.name);
+  if (!level) return "";
+  return `<p class="level" title="${escapeHTML(level.note || "")}">${escapeHTML(levelLabel(level))}</p>`;
+}
+
+function primerCardHTML(entries, name) {
+  const printing = primerPrinting(entries, name);
+  if (!printing) return "";
+  const e = printing.shown;
+  const src = imgURL(e.front_image);
+  const art = src
+    ? `<img alt="${escapeHTML(e.name || name)}" src="${src}">`
+    : `<div class="plate">${escapeHTML(e.name || name)}</div>`;
+  const bits = ["×" + printing.qty];
+  if (printing.foilQty) bits.push(printing.foilQty === printing.qty ? "foil" : "foil ×" + printing.foilQty);
+  return `<figure class="primer-card">
+    <div class="art${e.foil ? " is-foil" : ""}">${art}${e.foil ? `<span class="foil" aria-hidden="true"></span>` : ""}</div>
+    <figcaption><strong>${escapeHTML(e.name || name)}</strong><em>${escapeHTML(bits.join(" · "))}</em></figcaption>
+  </figure>`;
+}
+
+function primerStats(stats) {
+  if (!stats || !stats.length) return "";
+  return `<dl class="stats">${stats.map(s => `<div><dt>${escapeHTML(s.k || "")}</dt><dd>${manaHTML(s.v || "")}</dd></div>`).join("")}</dl>`;
+}
+
+function primerTicks(ticks) {
+  if (!ticks || !ticks.length) return "";
+  return `<ol class="ticks">${ticks.map((tick, i) => `<li><b>${i + 1}</b><span>${manaHTML(tick)}</span></li>`).join("")}</ol>`;
+}
+
+function primerChain(entries, beats) {
+  const steps = beats || [];
+  const bits = [];
+  steps.forEach((beat, i) => {
+    const when = beat.n ? `<p class="when">Ход ${escapeHTML(String(beat.n))}</p>` : "";
+    const note = beat.text ? `<p class="note">${manaHTML(beat.text)}</p>` : "";
+    bits.push(`<article class="step"><div class="face">${when}${primerCardHTML(entries, beat.card)}</div>${note}</article>`);
+    const last = i >= steps.length - 1;
+    if (last) {
+      if (beat.via) bits.push(`<div class="payoff"><b>${manaHTML(beat.via)}</b></div>`);
+      return;
+    }
+    const label = beat.via ? manaHTML(beat.via) : "";
+    if (beat.bridge) bits.push(`<div class="bridge"><b>${label}</b><span class="shaft"></span><p>${manaHTML(beat.bridge)}</p></div>`);
+    else bits.push(`<div class="arrow"><span>${label}</span><span class="shaft"></span></div>`);
+  });
+  const when = steps.some(step => step.n) ? " has-when" : "";
+  return `<div class="chain n-${steps.length}${when}">${bits.join("")}</div>`;
+}
+
+function primerBoard(entries, beats) {
+  return `<div class="board">${(beats || []).map(beat => {
+    const printing = primerPrinting(entries, beat.card);
+    const name = printing ? (printing.shown.name || beat.card) : beat.card;
+    const metaBits = [];
+    if (printing) {
+      metaBits.push("×" + printing.qty);
+      if (printing.foilQty) metaBits.push(printing.foilQty === printing.qty ? "foil" : "foil ×" + printing.foilQty);
+    }
+    const meta = metaBits.length ? `<em>${escapeHTML(metaBits.join(" · "))}</em>` : "";
+    const stat = beat.stat ? `<p class="stat">${manaHTML(beat.stat)}</p>` : "";
+    return `<article class="tile">${primerCardHTML(entries, beat.card)}<div class="blurb"><h4>${escapeHTML(name)}${meta}</h4>${stat}<p>${manaHTML(beat.text || "")}</p></div></article>`;
+  }).join("")}</div>`;
+}
+
+function primerPlay(entries, play) {
+  const line = play.line ? `<p class="play-line">${manaHTML(play.line)}</p>` : "";
+  return `<div class="play">${primerChain(entries, play.steps || [])}${primerTicks(play.ticks)}${line}</div>`;
+}
+
+function openPrimer(deck, entries) {
+  const guide = findGuide(deck.name);
+  document.getElementById("primer-title").textContent = "How to play";
+  document.getElementById("primer-kicker").textContent = deck.name || "";
+  const page = document.getElementById("primer-page");
+  if (!guide) {
+    page.innerHTML = `<h2>${escapeHTML(deck.name || "This deck")}</h2><p class="primer-empty">No primer for this deck yet.</p>`;
+  } else {
+    const level = guide.level;
+    const chip = level
+      ? `<p class="level-chip" title="${escapeHTML(level.note || "")}"><b>${escapeHTML(levelLabel(level))}</b></p><p class="level-note">${manaHTML(level.note || "")}</p>`
+      : "";
+    const hero = guide.hero ? primerCardHTML(entries, guide.hero) : "";
+    const turnSteps = (guide.turns || []).map(turn => ({
+      card: turn.card,
+      via: turn.tag || "",
+      n: turn.n,
+      text: turn.text,
+    }));
+    const turnBlock = turnSteps.length
+      ? `<section class="primer-sec"><h3>Одна партия</h3><div class="play">${primerChain(entries, turnSteps)}${guide.turnsLine ? `<p class="play-line">${manaHTML(guide.turnsLine)}</p>` : ""}</div></section>`
+      : "";
+    const sections = (guide.sections || []).map(sec => {
+      const plays = (sec.plays || []).map(play => primerPlay(entries, play)).join("");
+      const body = sec.beats ? primerBoard(entries, sec.beats) : "";
+      return `<section class="primer-sec"><h3>${escapeHTML(sec.title || "")}</h3>${(sec.paragraphs || []).map(p => `<p>${manaHTML(p)}</p>`).join("")}${primerStats(sec.stats)}${plays}${body}</section>`;
+    }).join("");
+    page.innerHTML = `<div class="primer-hero">${hero}<div>
+        <p class="primer-kicker">${escapeHTML(guide.kicker || "")}</p>
+        ${chip}
+        <h2>${escapeHTML(deck.name || "")}</h2>
+        <p class="primer-lead">${manaHTML(guide.lead || "")}</p>
+        ${primerStats(guide.stats)}
+      </div></div>${turnBlock}${sections}`;
+  }
+  preview.style.display = "none";
+  const primer = document.getElementById("primer");
+  primer.hidden = false;
+  primer.scrollTop = 0;
 }
 
 function commanderSelect(deck, entries) {
@@ -865,6 +1050,22 @@ function paintFoil() {
   host.style.setProperty("--px", x.toFixed(1));
   host.style.setProperty("--py", y.toFixed(1));
 }
+
+document.addEventListener("click", () => {
+  const pop = document.getElementById("deck-pop");
+  const btn = document.getElementById("deck-menu");
+  if (!pop || pop.hidden) return;
+  pop.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const primer = document.getElementById("primer");
+  if (!primer.hidden) primer.hidden = true;
+});
+document.getElementById("primer-close").addEventListener("click", () => {
+  document.getElementById("primer").hidden = true;
+});
 
 document.addEventListener("pointermove", (e) => {
   foilPoint = e;
